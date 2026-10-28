@@ -17,6 +17,7 @@
     if (KE.UI.isBusy()) return true;
     if (stack.length <= 1) return false;
     var top = stack.pop(), to = stack[stack.length - 1];
+    if (top === 'res') document.getElementById('resVid').pause();
     if (top === 'edVid') VE.close(); if (top === 'edImg') IE.close();
     document.querySelectorAll('.scr').forEach(function (s) { s.classList.remove('left'); s.classList.toggle('on', s.id === to); });
     return true;
@@ -53,14 +54,14 @@
   function showResult(r) {
     if (cur && cur.url) URL.revokeObjectURL(cur.url);
     cur = r; KE.UI.fillResult(r);
-    $('resTitle').textContent = r.kind === 'gif' ? 'GIF آماده است' : r.kind === 'awebp' ? 'WebP متحرک آماده است' : 'WebP آماده است';
+    $('resTitle').textContent = { image: 'عکس آماده است', video: 'ویدیو آماده است', gif: 'GIF آماده است', awebp: 'WebP متحرک آماده است' }[r.kind] || 'آماده است';
     $('resStat').className = 'status'; $('resStat').textContent = 'ذخیره نشده';
-    show('res', true);
+    show('res', true); requestAnimationFrame(function () { KE.UI.cmp && KE.UI.cmp.fit(); });
   }
   $('resSave').addEventListener('click', function () {
     if (!cur) return;
     KE.save(cur.blob, cur.name, 'save').then(function (r) {
-      if (r.ok) { $('resStat').className = 'status ok'; $('resStat').textContent = 'ذخیره شد'; ui.toast('در گالری ذخیره شد: ' + (r.where || 'Pictures/K-Edit')); }
+      if (r.ok) { $('resStat').className = 'status ok'; $('resStat').textContent = 'ذخیره شد'; ui.toast('ذخیره شد: ' + (r.where || 'Pictures/K-Edit')); }
       else if (r.perm) ui.toast('برای ذخیره، اجازهٔ دسترسی لازم است', 'err');
       else if (!r.cancelled) ui.toast('ذخیره نشد؛ دوباره امتحان کنید', 'err');
     });

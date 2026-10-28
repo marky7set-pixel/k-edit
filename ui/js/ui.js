@@ -15,7 +15,9 @@
       if (p == null || p < 0) { r.classList.add('spin'); return; }
       r.classList.remove('spin'); var v = Math.round(p * 100); r.style.setProperty('--p', v); document.getElementById('ringP').textContent = KE.fa(v) + '٪';
     },
-    idle: function () { busyOn = false; cancelFn = null; document.getElementById('busy').classList.remove('on'); },
+    idle: function () { busyOn = false; cancelFn = null; document.getElementById('busy').classList.remove('on'); UI.sub(''); },
+    sub: function (t) { var e = document.getElementById('busyS'); if (e) { e.textContent = t || ''; e.hidden = !t; } },
+    label: function (t) { document.getElementById('busyT').textContent = t; },
     toast: function (msg, kind) {
       var t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast on ' + (kind || ''); clearTimeout(tt);
       tt = setTimeout(function () { t.className = 'toast ' + (kind || ''); }, 3200);
@@ -35,22 +37,28 @@
       set('dRes', Math.abs(r) < 1 ? 'وضوح بدون تغییر' : (r > 0 ? 'وضوح ' + KE.fa(r) + '٪ بیشتر' : 'وضوح ' + KE.fa(-r) + '٪ کمتر'), r > 0 ? 'down' : '');
     },
     fillResult: function (r) {
-      document.getElementById('resImg').src = r.url;
-      document.getElementById('resA').textContent = r.orig ? KE.size(r.orig) : '—';
-      document.getElementById('resB').textContent = KE.size(r.blob.size);
-      var pc = document.getElementById('resPct');
-      document.getElementById('resAL').textContent = r.anim ? 'ویدیوی اصلی' : 'فایل اصلی';
-      document.getElementById('resAD').innerHTML = KE.dims(r.inW, r.inH);
-      document.getElementById('resBD').innerHTML = KE.dims(r.w, r.h);
-      if (r.orig) {
-        var d = Math.round((1 - r.blob.size / r.orig) * 100);
-        pc.textContent = d >= 0 ? KE.fa(d) + '٪ سبک‌تر' : KE.fa(-d) + '٪ سنگین‌تر'; pc.classList.toggle('up', d < 0); pc.hidden = false;
-      } else pc.hidden = true;
-      var px = Math.round(((r.w * r.h) / (r.inW * r.inH) - 1) * 100);
-      var meta = Math.abs(px) < 1 ? 'وضوح بدون تغییر' : 'وضوح ' + KE.fa(Math.abs(px)) + '٪ ' + (px > 0 ? 'بیشتر' : 'کمتر');
-      if (r.anim) meta += ' · ' + KE.fa(r.frames) + ' فریم · ' + KE.time(r.dur);
-      else meta += ' · ' + (r.mode === 'lossless' ? 'بی‌افت' : 'کیفیت ' + KE.fa(Math.round(r.q * 100)));
-      document.getElementById('resMeta').innerHTML = meta;
+      var img = document.getElementById('resImg'), vid = document.getElementById('resVid'), cv = document.getElementById('cmpv');
+      if (!UI.cmp) UI.cmp = new KE.Compare(cv);
+      img.hidden = true; vid.hidden = true; vid.pause(); vid.removeAttribute('src'); UI.cmp.hide();
+      if (r.kind === 'video') { vid.src = r.url; vid.hidden = false; vid.loop = true; }
+      else if (r.kind === 'image') UI.cmp.set(r.before, r.url, r.w, r.h, 'بعد' + (r.up ? ' | \u2066' + KE.fa(r.up) + '×\u2069' : ''));
+      else { img.src = r.url; img.hidden = false; }
+      var inF = (r.origType || '').split('/')[1] || ((r.origName || '').split('.').pop() || '');
+      inF = { jpeg: 'JPG', png: 'PNG', webp: 'WebP', avif: 'AVIF', gif: 'GIF', mp4: 'MP4', webm: 'WebM', quicktime: 'MOV', mov: 'MOV', heic: 'HEIC', 'x-matroska': 'MKV' }[inF.toLowerCase()] || inF.toUpperCase() || '—';
+      var outF = r.kind === 'awebp' ? 'WebP متحرک' : KE.FMTN[r.fmt] || 'WebP';
+      if (r.kind === 'image' && r.up) outF += ' | ارتقا \u2066' + KE.fa(r.up) + '×\u2069';
+      if (r.kind === 'video') outF += r.audio ? ' | با صدا' : ' | بی‌صدا';
+      var d = r.orig ? Math.round((1 - r.blob.size / r.orig) * 100) : null;
+      var tag = d == null ? '' : ' <em class="' + (d >= 0 ? 'dn' : 'upc') + '">' + (d >= 0 ? '٪' + KE.fa(d) + ' کمتر' : '٪' + KE.fa(-d) + ' بیشتر') + '</em>';
+      var rows = [['dims', 'ابعاد', KE.dims(r.inW, r.inH), KE.dims(r.w, r.h)], ['weight', 'حجم', r.orig ? KE.size(r.orig) : '—', KE.size(r.blob.size) + tag], ['file', 'قالب', inF, outF]];
+      if (r.anim) rows.push(['film', 'مدت', '', KE.fa((Math.round(r.dur * 10) / 10)) + ' ثانیه | ' + KE.fa(r.frames) + ' فریم']);
+      var h = '<span></span><span class="h">ورودی</span><span></span><span class="h">خروجی</span>';
+      rows.forEach(function (x) {
+        if (x[0] === 'film') h += '<span class="k">' + KE.icon('film') + x[1] + '</span><span class="tm">' + x[3] + '</span>';
+        else h += '<span class="k">' + KE.icon(x[0]) + x[1] + '</span><span class="a">' + x[2] + '</span><span class="ar">' + KE.icon('prev') + '</span><span class="b">' + x[3] + '</span>';
+      });
+      h += '<span class="k">' + KE.icon('clock') + 'زمان ساخت</span><span class="tm">' + (r.ms < 1000 ? KE.fa((r.ms / 1000).toFixed(1)) : KE.fa((r.ms / 1000).toFixed(r.ms < 10000 ? 1 : 0))) + ' ثانیه</span>';
+      document.getElementById('resTable').innerHTML = h;
     }
   };
   document.getElementById('busyX').addEventListener('click', function () { if (cancelFn) cancelFn(); });

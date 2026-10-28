@@ -45,7 +45,7 @@ fn save_begin(name: String, state: State<'_, Saves>) -> Result<String, String> {
         dlg = dlg.add_filter(ext.to_uppercase(), &[ext.as_str()]);
     }
     if let Ok(home) = std::env::var("USERPROFILE") {
-        let pics = std::path::Path::new(&home).join("Pictures");
+        let pics = std::path::Path::new(&home).join(if ext == "mp4" || ext == "webm" { "Videos" } else { "Pictures" });
         if pics.is_dir() {
             dlg = dlg.set_directory(pics);
         }

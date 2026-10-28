@@ -57,13 +57,22 @@
   function showResult(r) {
     if (cur && cur.url) URL.revokeObjectURL(cur.url);
     cur = r; saved = null; KE.UI.fillResult(r);
-    $('resTitle').textContent = r.kind === 'gif' ? 'GIF آماده است' : r.kind === 'awebp' ? 'WebP متحرک آماده است' : 'WebP آماده است';
+    $('resTitle').textContent = { image: 'عکس آماده است', video: 'ویدیو آماده است', gif: 'GIF آماده است', awebp: 'WebP متحرک آماده است' }[r.kind] || 'آماده است';
     $('resStat').className = 'status'; $('resStat').textContent = 'هنوز ذخیره نشده';
     $('resReveal').hidden = true; $('resSave').querySelector('.ic') && null;
-    $('res').hidden = false; $('btnBack').hidden = false;
+    $('res').hidden = false; $('btnBack').hidden = false; requestAnimationFrame(function () { KE.UI.cmp && KE.UI.cmp.fit(); });
     stat.className = 'status ok'; stat.textContent = KE.size(r.blob.size);
   }
-  function closeResult() { if ($('res').hidden) return; $('res').hidden = true; sync(); }
+  function closeResult() { if ($('res').hidden) return; $('res').hidden = true; $('resVid').pause(); sync(); }
+  // inspector tabs: edit / output
+  document.querySelectorAll('.insp').forEach(function (insp) {
+    insp.querySelectorAll('[data-seg]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        insp.querySelectorAll('[data-seg]').forEach(function (x) { x.classList.toggle('sel', x === b); });
+        insp.classList.toggle('out', b.getAttribute('data-seg') === 'out'); insp.querySelector('.insp-body').scrollTop = 0;
+      });
+    });
+  });
   $('resBack').addEventListener('click', closeResult);
   $('resSave').addEventListener('click', function () {
     if (!cur) return;

@@ -141,3 +141,11 @@ body.mob { height: 100vh; height: 100dvh; font-size: 14.5px; }
 .row.scroll .fxi canvas { width: 66px; height: 44px; }
 .row.scroll .fxi span { font-size: 11.5px; }
 @media (max-height: 780px) { .row.scroll .fxi canvas { width: 60px; height: 40px; } .row.scroll .fxi { gap: 3px; } }
+/* v1.3 tab bar: icon above a one-word label */
+.tabs.t5 { grid-template-columns: repeat(5, 1fr); } .tabs.t4 { grid-template-columns: repeat(4, 1fr); }
+.tabs .tab { height: 56px; flex-direction: column; gap: 3px; font-size: 11.5px; }
+.tabs .tab .ic { width: 22px; height: 22px; } .tabs .tab > span { display: inline-grid; }
+.pane .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pane .fmts .fmt { height: 56px; }
+.res-sheet .cmpt { font-size: 12.5px; gap: 6px 8px; }
+@media (max-height: 780px) { .tabs .tab { height: 48px; font-size: 11px; } .tabs .tab .ic { width: 20px; height: 20px; } .pane .fmts .fmt { height: 50px; } .fmt b { font-size: 14px; } }

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var KE = window.KE = {};
-  KE.version = '1.2.0';
+  KE.version = '1.3.0';
   var FA = '۰۱۲۳۴۵۶۷۸۹';
   KE.fa = function (v) { return String(v).replace(/[0-9]/g, function (d) { return FA[d]; }).replace(/\./g, '٫'); };
   KE.size = function (b) {
@@ -158,31 +158,53 @@
     var s = small(canvas, 512), d = s.getContext('2d').getImageData(0, 0, s.width, s.height).data;
     for (var i = 3; i < d.length; i += 4) if (d[i] < 250) return true; return false;
   };
+  // encoders by format; JPG/AVIF have no transparency, so they sit on white
+  KE.flatten = function (canvas) {
+    var c = document.createElement('canvas'); c.width = canvas.width; c.height = canvas.height;
+    var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(canvas, 0, 0); return c;
+  };
+  KE.encodeImg = function (canvas, fmt, q) {
+    if (fmt === 'jpg') return new Promise(function (res, rej) { canvas.toBlob(function (b) { b ? res(b) : rej(new Error('encode')); }, 'image/jpeg', q); });
+    if (fmt === 'avif') return KE.avif(canvas, q);
+    return KE.webp(canvas, q);
+  };
   // smart: lowest quality whose result is visually identical (PSNR target), searched on a preview copy
-  KE.smartWebP = function (canvas, target, onStep) {
+  KE.smartEncode = function (canvas, fmt, target, onStep) {
     target = target || 42;
-    var s = small(canvas, 1400), ref = s.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, s.width, s.height).data;
-    var lo = 0.5, hi = 0.97, best = hi, step = 0;
+    var s = small(canvas, fmt === 'avif' ? 1000 : 1400), ref = s.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, s.width, s.height).data;
+    var lo = fmt === 'jpg' ? 0.55 : 0.4, hi = 0.97, best = hi, step = 0, steps = fmt === 'avif' ? 5 : 6;
+    var pre = fmt === 'avif' ? KE.encodeImg(s, fmt, 0.97).then(function (b) { return psnr(ref, b, s.width, s.height); }).then(function (top) { target = Math.min(target, top - 2.5); }) : Promise.resolve();
     function iter() {
-      if (step >= 6) return Promise.resolve(best);
-      var q = (lo + hi) / 2; step++; if (onStep) onStep(step / 7);
-      return KE.webp(s, q).then(function (b) { return psnr(ref, b, s.width, s.height); }).then(function (p) {
+      if (step >= steps) return Promise.resolve(best);
+      var q = (lo + hi) / 2; step++; if (onStep) onStep(step / (steps + 1));
+      return KE.encodeImg(s, fmt, q).then(function (b) { return psnr(ref, b, s.width, s.height); }).then(function (p) {
         if (p >= target) { best = q; hi = q; } else lo = q; return iter();
       });
     }
-    return iter().then(function (q) {
+    return pre.then(iter).then(function (q) {
       q = Math.min(0.97, q + 0.02);
-      return KE.webp(canvas, q).then(function (b) { if (onStep) onStep(1); return { blob: b, q: q }; });
+      return KE.encodeImg(canvas, fmt, q).then(function (b) { if (onStep) onStep(1); return { blob: b, q: q }; });
     });
   };
+  KE.smartWebP = function (canvas, target, onStep) { return KE.smartEncode(canvas, 'webp', target, onStep); };
 
-  KE.estimateWebP = function (st, crop, res, qm, q) {
-    var full = KE.outSize(crop, res), px = full.w * full.h, LIM = 2.2e6, k = px > LIM ? Math.sqrt(LIM / px) : 1;
-    var c = KE.renderOut(st, crop, res, k), p;
-    if (qm === 'lossless') p = KE.webp(c, 1);
-    else if (qm === 'manual') p = KE.webp(c, q);
-    else p = KE.smartWebP(c, 42).then(function (r) { return r.blob; });
-    return p.then(function (b) { var n = b.size * Math.pow(px / (c.width * c.height), 0.92); c.width = c.height = 1; return Math.round(n); });
+  KE.estimateImg = function (st, crop, res, qm, q, fmt, up) {
+    var t0 = performance.now(), full = KE.imgOutSize(crop, res, up), px = full.w * full.h, LIM = fmt === 'avif' ? 9e5 : 2.2e6, k = px > LIM ? Math.sqrt(LIM / px) : 1;
+    var c = KE.renderOut(st, crop, up ? 0 : res, k * (up ? up : 1)), p;
+    if (fmt !== 'webp') c = KE.flatten(c);
+    if (qm === 'lossless' && fmt === 'webp') p = KE.webp(c, 1);
+    else if (qm === 'manual') p = KE.encodeImg(c, fmt, q);
+    else p = KE.smartEncode(c, fmt, 42).then(function (r) { return r.blob; });
+    return p.then(function (b) {
+      var ms = performance.now() - t0, ratio = px / (c.width * c.height), n = b.size * Math.pow(ratio, 0.92); c.width = c.height = 1;
+      return { size: Math.round(n), ms: ms * Math.pow(ratio, 0.9) };
+    });
+  };
+  KE.estimateWebP = function (st, crop, res, qm, q) { return KE.estimateImg(st, crop, res, qm, q, 'webp', 0).then(function (r) { return r.size; }); };
+  // output size of the image: AI upscale multiplies the crop, otherwise the resolution preset applies
+  KE.imgOutSize = function (crop, res, up) {
+    if (up) return { w: Math.round(crop.w * up), h: Math.round(crop.h * up) };
+    return KE.outSize(crop, res);
   };
 
   /* ---------- video -> GIF ---------- */
@@ -219,7 +241,7 @@
     wins.forEach(function (pos) {
       var i0 = Math.max(0, Math.min(P.n - m, Math.round(P.n * pos))), frames = [];
       for (var j = 0; j < m; j++) (function (j) {
-        chain = chain.then(function () { if (o.stale()) throw new Error('stale'); return KE.seek(v, Math.min(o.end - 0.001, o.start + (i0 + j) * step)); })
+        chain = chain.then(function () { if (o.stale()) throw new Error('stale'); return KE.seek(v, Math.min(o.end - 0.001, o.start + (i0 + j) * step + 0.008)); })
           .then(function () { ctx.drawImage(v, o.crop.x, o.crop.y, o.crop.w, o.crop.h, 0, 0, w, h); var d = ctx.getImageData(0, 0, w, h).data; if (o.fx) KE.FX.apply(d, w, h, o.fx, o.fxk); frames.push(d.buffer); });
       })(j);
       chain = chain.then(function () {
@@ -262,19 +284,16 @@
     api.promise = chain.then(function () {
       return call({ cmd: 'start', w: P.w, h: P.h, colors: Q.colors, spread: Q.spread, thr: Q.thr, sharpen: P.sharpen, samples: samples }, samples);
     }).then(function () {
-      var i = 0, acc = 0;
-      function one() {
-        if (cancelled) return Promise.reject(new Error('cancel'));
-        if (i >= P.n) return Promise.resolve();
-        var t = Math.min(o.end - 0.001, o.start + i * step);
-        return KE.seek(v, t).then(function () {
-          var next = Math.round((i + 1) * 100 / o.fps), d = next - acc; acc = next;
-          var buf = grab(); var p = call({ cmd: 'frame', buf: buf, delay: d, i: i }, [buf]);
-          i++; o.onProgress && o.onProgress(0.08 + 0.9 * i / P.n);
-          return p.then(one);
-        });
-      }
-      return one();
+      var acc = 0, times = [];
+      for (var k = 0; k < P.n; k++) times.push(Math.min(o.end - 0.001, o.start + k * step));
+      return KE.runFrames(o, times, function (i, draw) {
+        draw(ctx, o.crop, P.w, P.h);
+        var d = ctx.getImageData(0, 0, P.w, P.h).data; if (o.fx) KE.FX.apply(d, P.w, P.h, o.fx, o.fxk);
+        var next = Math.round((i + 1) * 100 / o.fps), dl = next - acc; acc = next;
+        var p = call({ cmd: 'frame', buf: d.buffer, delay: dl, i: i }, [d.buffer]);
+        o.onProgress && o.onProgress(0.08 + 0.9 * (i + 1) / P.n);
+        return p;
+      }, function () { return cancelled; });
     }).then(function () { return call({ cmd: 'finish', loop: o.loop !== false }); })
       .then(function (r) { wk.terminate(); o.onProgress && o.onProgress(1); return new Blob(r.parts, { type: 'image/gif' }); },
         function (e) { wk.terminate(); throw e; });
@@ -298,15 +317,19 @@
     var v = o.video, P = KE.gifPlan(o), enc = new KE.AnimWebP(P.w, P.h, o.quality), grab = frameGrabber(o, P, P.w, P.h);
     var step = (o.end - o.start) / P.n, cancelled = false, api = { cancel: function () { cancelled = true; } };
     v.pause();
-    var i = 0, acc = 0;
+    var acc = 0, times = [], cv = document.createElement('canvas'); cv.width = P.w; cv.height = P.h;
+    var cx = cv.getContext('2d', { willReadFrequently: true });
+    for (var k = 0; k < P.n; k++) times.push(Math.min(o.end - 0.001, o.start + k * step));
     function one() {
-      if (cancelled) return Promise.reject(new Error('cancel'));
-      if (i >= P.n) return Promise.resolve();
-      return KE.seek(v, Math.min(o.end - 0.001, o.start + i * step)).then(function () {
+      return KE.runFrames(o, times, function (i, draw) {
+        draw(cx, o.crop, P.w, P.h);
+        var im = cx.getImageData(0, 0, P.w, P.h);
+        if (o.fx) KE.FX.apply(im.data, P.w, P.h, o.fx, o.fxk);
+        if (P.sharpen) KE.sharpen(im.data, P.w, P.h, P.sharpen);
         var next = Math.round((i + 1) * 1000 / o.fps), d = next - acc; acc = next;
-        var p = enc.add(grab(), d); i++; o.onProgress && o.onProgress(0.98 * i / P.n);
-        return p.then(one);
-      });
+        var p = enc.add(im, d); o.onProgress && o.onProgress(0.98 * (i + 1) / P.n);
+        return p;
+      }, function () { return cancelled; });
     }
     api.promise = one().then(function () { var b = enc.finish(o.loop !== false); o.onProgress && o.onProgress(1); return b; });
     return api;
@@ -319,7 +342,7 @@
       var i0 = Math.max(0, Math.min(P.n - m, Math.round(P.n * pos))), enc;
       chain = chain.then(function () { enc = new KE.AnimWebP(w, h, o.quality); });
       for (var j = 0; j < m; j++) (function (j) {
-        chain = chain.then(function () { if (o.stale()) throw new Error('stale'); return KE.seek(v, Math.min(o.end - 0.001, o.start + (i0 + j) * step)); })
+        chain = chain.then(function () { if (o.stale()) throw new Error('stale'); return KE.seek(v, Math.min(o.end - 0.001, o.start + (i0 + j) * step + 0.008)); })
           .then(function () { return enc.add(grab(), 40); });
       })(j);
       chain = chain.then(function () {
@@ -481,6 +504,16 @@
     spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
     loop: '<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 014-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 01-4 4H4"/>',
     wand: '<path d="M4 20L14.5 9.5"/><path d="M15 3l1.2 2.8L19 7l-2.8 1.2L15 11l-1.2-2.8L11 7l2.8-1.2z"/><path d="M19.5 13l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z"/>',
+    edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
+    drop: '<path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z"/><path d="M9 15a3 3 0 003 3"/>',
+    up: '<rect x="3" y="11" width="10" height="10" rx="2"/><path d="M14 3h7v7M21 3l-8 8"/>',
+    file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/>',
+    dims: '<path d="M4 9V4h5M20 15v5h-5M4 4l6 6M20 20l-6-6"/>',
+    weight: '<path d="M6 8h12l2 12H4z"/><circle cx="12" cy="5" r="2"/>',
+    film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+    sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/>',
+    speed: '<path d="M12 14l4-4"/><path d="M4 18a9 9 0 1116 0"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
   };
   KE.icon = function (n, cls) { return '<svg class="ic ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (IC[n] || '') + '</svg>'; };

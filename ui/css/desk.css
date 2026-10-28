@@ -126,3 +126,12 @@ kbd + kbd { margin: 0 2px; }
 .fxcv[hidden] { display: none; }
 .grid2 { display: grid; gap: 7px; grid-template-columns: 1fr 1fr; }
 .sec .fxstrip { margin: 0 -4px 6px; }
+/* v1.3 inspector tabs */
+.seg { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 13px; background: rgba(4, 7, 14, .6); border: 1px solid var(--line); margin: 6px 0 2px; }
+.seg button { height: 38px; border: 0; border-radius: 10px; background: none; color: var(--muted); font-weight: 700; font-size: 13.5px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; transition: all .2s var(--ease); }
+.seg button > span { display: inline-grid; } .seg button .ic { width: 17px; height: 17px; }
+.seg button.sel { color: #1d1405; background: linear-gradient(135deg, #fff3d1, #f1cb83 50%, #c99e4c); box-shadow: 0 4px 12px rgba(241, 203, 131, .25); }
+.insp:not(.out) [data-grp=out], .insp.out [data-grp=edit] { display: none; }
+.res-foot { grid-template-columns: minmax(0, 620px) 1fr auto; }
+.res-foot .cmpt { grid-column: 1; } .res-foot .res-acts { grid-column: 3; }
+.sec h3 .legend { font-weight: 500; }

@@ -178,7 +178,7 @@ public class MainActivity extends Activity {
 
     /** One file being written straight to its final place, piece by piece (no big copy in memory). */
     private static class Sink {
-        OutputStream os; Uri uri; File file; String name, mime, action;
+        OutputStream os; Uri uri; File file; String name, mime, action; boolean dl;
     }
     private final Map<String, Sink> sinks = new HashMap<>();
 
@@ -207,13 +207,23 @@ public class MainActivity extends Activity {
             ContentValues cv = new ContentValues();
             cv.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
             cv.put(MediaStore.MediaColumns.MIME_TYPE, mime);
-            cv.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/K-Edit");
+            boolean vid = mime != null && mime.startsWith("video/");
+            cv.put(MediaStore.MediaColumns.RELATIVE_PATH, (vid ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES) + "/K-Edit");
             cv.put(MediaStore.MediaColumns.IS_PENDING, 1);
-            k.uri = getContentResolver().insert(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), cv);
+            try {
+                k.uri = getContentResolver().insert(vid ? MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        : MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), cv);
+            } catch (Exception e) { k.uri = null; }
+            if (k.uri == null) { // e.g. AVIF on Android 10/11: the gallery refuses the type, so it goes to Download/K-Edit
+                cv.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/K-Edit");
+                k.uri = getContentResolver().insert(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), cv);
+                k.dl = true;
+            }
             if (k.uri == null) throw new Exception("insert");
             k.os = getContentResolver().openOutputStream(k.uri);
         } else {
-            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "K-Edit");
+            boolean vid = mime != null && mime.startsWith("video/");
+            File dir = new File(Environment.getExternalStoragePublicDirectory(vid ? Environment.DIRECTORY_MOVIES : Environment.DIRECTORY_PICTURES), "K-Edit");
             if (!dir.exists()) dir.mkdirs();
             String base = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
             String ext = name.contains(".") ? name.substring(name.lastIndexOf('.')) : "";
@@ -248,10 +258,10 @@ public class MainActivity extends Activity {
             ContentValues cv = new ContentValues();
             cv.put(MediaStore.MediaColumns.IS_PENDING, 0);
             getContentResolver().update(k.uri, cv, null, null);
-            return "Pictures/K-Edit/" + k.name;
+            return (k.dl ? "Download" : k.mime != null && k.mime.startsWith("video/") ? "Movies" : "Pictures") + "/K-Edit/" + k.name;
         }
         MediaScannerConnection.scanFile(this, new String[]{k.file.getAbsolutePath()}, new String[]{k.mime}, null);
-        return "Pictures/K-Edit/" + k.file.getName();
+        return (k.mime != null && k.mime.startsWith("video/") ? "Movies" : "Pictures") + "/K-Edit/" + k.file.getName();
     }
 
     public class Bridge {
