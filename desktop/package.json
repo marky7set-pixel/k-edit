@@ -1,0 +1,1 @@
+{ "name": "k-edit-desktop", "private": true, "version": "1.0.0", "devDependencies": { "@tauri-apps/cli": "^2" } }

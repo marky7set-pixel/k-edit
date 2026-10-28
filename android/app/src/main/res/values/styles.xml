@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="kbg">#060A15</color>
+    <color name="ic_launcher_background">#070D1A</color>
+    <style name="KTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/kbg</item>
+        <item name="android:statusBarColor">@color/kbg</item>
+        <item name="android:navigationBarColor">@color/kbg</item>
+        <item name="android:colorAccent">#F1CB83</item>
+    </style>
+</resources>

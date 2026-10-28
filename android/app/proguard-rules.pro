@@ -1,0 +1,3 @@
+-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
+-keepattributes JavascriptInterface
+-keep class ir.kelid.kedit.MainActivity$Bridge { *; }

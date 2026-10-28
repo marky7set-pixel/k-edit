@@ -1,0 +1,8 @@
+out/
+android/.gradle/
+android/app/build/
+android/app/src/main/assets/
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/icons/

@@ -1,0 +1,35 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'ir.kelid.kedit'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'ir.kelid.kedit'
+        minSdk 24
+        targetSdk 34
+        versionCode Integer.parseInt(System.getenv('KE_CODE') ?: '1')
+        versionName System.getenv('KE_VER') ?: '1.0.0'
+    }
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('KE_KS') ?: 'missing.p12')
+            storePassword System.getenv('KE_KS_PASS')
+            keyAlias 'kedit'
+            keyPassword System.getenv('KE_KS_PASS')
+            storeType 'pkcs12'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+    implementation 'androidx.core:core:1.13.1'
+}
