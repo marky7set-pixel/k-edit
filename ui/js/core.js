@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var KE = window.KE = {};
-  KE.version = '1.0.0';
+  KE.version = '1.2.0';
   var FA = '۰۱۲۳۴۵۶۷۸۹';
   KE.fa = function (v) { return String(v).replace(/[0-9]/g, function (d) { return FA[d]; }).replace(/\./g, '٫'); };
   KE.size = function (b) {
@@ -31,20 +31,34 @@
     for (var i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
     return btoa(s);
   }
+  var CHUNK = 3 * 1024 * 1024;
+  function slices(blob, each) { // read the file piece by piece; each(u8) may return a promise
+    var i = 0;
+    function nx() {
+      if (i >= blob.size) return Promise.resolve();
+      var part = blob.slice(i, i + CHUNK); i += CHUNK;
+      return part.arrayBuffer().then(function (ab) { return each(new Uint8Array(ab)); }).then(nx);
+    }
+    return nx();
+  }
   KE.save = function (blob, name, action) {
     action = action || 'save';
     if (KE.platform === 'android') {
-      return blob.arrayBuffer().then(function (buf) {
-        var u8 = new Uint8Array(buf), id = window.KEditNative.begin(), STEP = 393216;
-        for (var i = 0; i < u8.length; i += STEP) window.KEditNative.append(id, b64(u8.subarray(i, i + STEP)));
-        return new Promise(function (res) { pending[id] = res; window.KEditNative.finish(id, name, blob.type, action); });
-      });
+      var N = window.KEditNative, id;
+      try { id = N.open(name, blob.type || 'application/octet-stream', action); } catch (e) { return Promise.resolve({ ok: false, error: String(e) }); }
+      if (id === 'perm') return Promise.resolve({ ok: false, perm: true });
+      if (!id || id === 'err') return Promise.resolve({ ok: false, error: 'open' });
+      return slices(blob, function (u8) { if (!N.write(id, b64(u8))) throw new Error('write'); })
+        .then(function () { return JSON.parse(N.close(id)); }, function (e) { try { N.abort(id); } catch (x) {} return { ok: false, error: String(e) }; });
     }
     if (KE.platform === 'desktop') {
-      return blob.arrayBuffer().then(function (buf) {
-        return window.__TAURI__.core.invoke('save_file', new Uint8Array(buf), { headers: { 'x-name': encodeURIComponent(name) } });
-      }).then(function (p) { return p ? { ok: true, where: p } : { ok: false, cancelled: true }; },
-        function (e) { return { ok: false, error: String(e) }; });
+      var inv = window.__TAURI__.core.invoke, sid;
+      return inv('save_begin', { name: name }).then(function (r) {
+        sid = r; if (!sid) return { ok: false, cancelled: true };
+        return slices(blob, function (u8) { return inv('save_chunk', u8, { headers: { 'x-id': sid } }); })
+          .then(function () { return inv('save_end', { id: sid }); })
+          .then(function (p) { return { ok: true, where: p }; });
+      }).catch(function (e) { if (sid) inv('save_abort', { id: sid }).catch(function () {}); return { ok: false, error: String(e) }; });
     }
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
@@ -82,21 +96,41 @@
     ctx.drawImage(st.bmp, 0, 0);
     ctx.restore();
   };
-  KE.outSize = function (crop, maxEdge) {
-    var w = crop.w, h = crop.h, L = Math.max(w, h);
-    if (maxEdge && L > maxEdge) { var k = maxEdge / L; w *= k; h *= k; }
+  // res = target short side in px (0 = keep). Bigger than the source means upscaling.
+  KE.outSize = function (crop, res) {
+    var w = crop.w, h = crop.h;
+    if (res) { var k = res / Math.min(w, h); w *= k; h *= k; }
     return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
   };
-  KE.renderOut = function (st, crop, maxEdge) {
-    var sz = KE.outSize(crop, maxEdge), c = document.createElement('canvas');
+  KE.sharpen = function (d, w, h, amt) {
+    var src = new Uint8ClampedArray(d), row = w * 4;
+    for (var y = 1; y < h - 1; y++) for (var x = 1; x < w - 1; x++) {
+      var i = y * row + x * 4;
+      for (var c = 0; c < 3; c++) {
+        var k = i + c, bl = (src[k - row - 4] + src[k - row] + src[k - row + 4] + src[k - 4] + src[k] + src[k + 4] + src[k + row - 4] + src[k + row] + src[k + row + 4]) / 9;
+        d[k] = src[k] + amt * (src[k] - bl);
+      }
+    }
+  };
+  KE.sharpAmt = function (k) { return k > 1.05 ? Math.min(0.9, 0.3 + 0.22 * (k - 1)) : 0; };
+  KE.renderOut = function (st, crop, res, scale) {
+    var sz = KE.outSize(crop, res), c = document.createElement('canvas');
+    if (scale && scale < 1) { sz.w = Math.max(1, Math.round(sz.w * scale)); sz.h = Math.max(1, Math.round(sz.h * scale)); }
     c.width = sz.w; c.height = sz.h;
-    var ctx = c.getContext('2d');
-    // big downscales: two steps keeps detail crisp
-    if (crop.w / sz.w > 2.5) {
+    var ctx = c.getContext('2d', { willReadFrequently: true });
+    if (crop.w / sz.w > 2.5) { // big downscale in two steps keeps detail crisp
       var mid = document.createElement('canvas'); mid.width = sz.w * 2; mid.height = sz.h * 2;
       KE.drawImg(mid.getContext('2d'), st, crop, mid.width, mid.height);
       ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(mid, 0, 0, sz.w, sz.h);
+      mid.width = mid.height = 1;
     } else KE.drawImg(ctx, st, crop, sz.w, sz.h);
+    var amt = KE.sharpAmt(KE.outSize(crop, res).w / crop.w), fx = st.fx && st.fxk > 0;
+    if (amt || fx) {
+      var id = ctx.getImageData(0, 0, sz.w, sz.h);
+      if (fx) KE.FX.apply(id.data, sz.w, sz.h, st.fx, st.fxk);
+      if (amt) KE.sharpen(id.data, sz.w, sz.h, amt);
+      ctx.putImageData(id, 0, 0);
+    }
     return c;
   };
   KE.webp = function (canvas, q) {
@@ -142,11 +176,20 @@
     });
   };
 
+  KE.estimateWebP = function (st, crop, res, qm, q) {
+    var full = KE.outSize(crop, res), px = full.w * full.h, LIM = 2.2e6, k = px > LIM ? Math.sqrt(LIM / px) : 1;
+    var c = KE.renderOut(st, crop, res, k), p;
+    if (qm === 'lossless') p = KE.webp(c, 1);
+    else if (qm === 'manual') p = KE.webp(c, q);
+    else p = KE.smartWebP(c, 42).then(function (r) { return r.blob; });
+    return p.then(function (b) { var n = b.size * Math.pow(px / (c.width * c.height), 0.92); c.width = c.height = 1; return Math.round(n); });
+  };
+
   /* ---------- video -> GIF ---------- */
   KE.GIFQ = {
-    best: { colors: 255, spread: 12, thr: 0 },
-    balanced: { colors: 255, spread: 9, thr: 4 },
-    small: { colors: 180, spread: 0, thr: 8 }
+    best: { colors: 255, spread: 8, thr: 2 },
+    balanced: { colors: 255, spread: 5, thr: 6 },
+    small: { colors: 128, spread: 0, thr: 12 }
   };
   KE.seek = function (v, t) {
     return new Promise(function (res) {
@@ -157,11 +200,46 @@
     });
   };
   KE.gifPlan = function (o) {
-    var cw = o.crop.w, ch = o.crop.h, ow = Math.min(o.outW || cw, cw);
-    ow = Math.max(16, Math.round(ow)); var oh = Math.max(16, Math.round(ch * ow / cw));
+    var sz = KE.outSize(o.crop, o.res), ow = Math.max(16, sz.w - (sz.w % 2)), oh = Math.max(16, sz.h - (sz.h % 2));
     var span = Math.max(0.05, o.end - o.start), speed = o.speed || 1;
     var n = Math.max(1, Math.round(span / speed * o.fps));
-    return { w: ow, h: oh, n: n, dur: span / speed };
+    return { w: ow, h: oh, n: n, dur: span / speed, sharpen: KE.sharpAmt(ow / o.crop.w) };
+  };
+  // quick size estimate: encode two short windows and extrapolate (first frame full, the rest are only the changes)
+  KE.estimateGif = function (o) {
+    var v = o.video, P = KE.gifPlan(o), Q = KE.GIFQ[o.quality] || KE.GIFQ.balanced, step = (o.end - o.start) / P.n;
+    var lim = 1.6e5, k = Math.min(1, Math.sqrt(lim / (P.w * P.h))), w = Math.max(16, Math.round(P.w * k)), h = Math.max(16, Math.round(P.h * k));
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var ctx = c.getContext('2d', { willReadFrequently: true }); ctx.imageSmoothingQuality = 'high';
+    var wk = new Worker('js/gifworker.js'), q = [];
+    wk.onmessage = function (e) { var r = q.shift(); if (r) (e.data.cmd === 'error' ? r.rej : r.res)(e.data); };
+    function call(m, tr) { return new Promise(function (res, rej) { q.push({ res: res, rej: rej }); wk.postMessage(m, tr || []); }); }
+    var m = Math.min(P.n, 6), wins = P.n > 14 ? [0.3, 0.72] : [0], key = [], diff = [];
+    var chain = Promise.resolve();
+    wins.forEach(function (pos) {
+      var i0 = Math.max(0, Math.min(P.n - m, Math.round(P.n * pos))), frames = [];
+      for (var j = 0; j < m; j++) (function (j) {
+        chain = chain.then(function () { if (o.stale()) throw new Error('stale'); return KE.seek(v, Math.min(o.end - 0.001, o.start + (i0 + j) * step)); })
+          .then(function () { ctx.drawImage(v, o.crop.x, o.crop.y, o.crop.w, o.crop.h, 0, 0, w, h); var d = ctx.getImageData(0, 0, w, h).data; if (o.fx) KE.FX.apply(d, w, h, o.fx, o.fxk); frames.push(d.buffer); });
+      })(j);
+      chain = chain.then(function () {
+        var samp = frames.map(function (f) { return f.slice(0); });
+        return call({ cmd: 'start', w: w, h: h, colors: Q.colors, spread: Q.spread, thr: Q.thr, sharpen: P.sharpen, samples: samp }, samp);
+      }).then(function () {
+        var p = Promise.resolve();
+        frames.forEach(function (f, j) { p = p.then(function () { return call({ cmd: 'frame', buf: f, delay: 4, i: j }, [f]); }); });
+        return p.then(function () { return call({ cmd: 'stats' }); });
+      }).then(function (r) {
+        key.push(r.sizes[0]); var rest = r.sizes.slice(1); var add = m - r.sizes.length; // merged identical frames cost ~0
+        if (rest.length || add) diff.push(rest.reduce(function (a, b) { return a + b; }, 0) / Math.max(1, rest.length + add));
+      });
+    });
+    return chain.then(function () {
+      wk.terminate();
+      var kf = key.reduce(function (a, b) { return a + b; }, 0) / key.length, df = diff.length ? diff.reduce(function (a, b) { return a + b; }, 0) / diff.length : 0;
+      var scale = (P.w * P.h) / (w * h);
+      return Math.round(800 + (kf + df * (P.n - 1)) * Math.pow(scale, 0.95));
+    }, function (e) { wk.terminate(); throw e; });
   };
   KE.makeGif = function (o) {
     var v = o.video, P = KE.gifPlan(o), Q = KE.GIFQ[o.quality] || KE.GIFQ.balanced;
@@ -170,7 +248,7 @@
     var wk = new Worker('js/gifworker.js'), waiters = [], cancelled = false;
     wk.onmessage = function (e) { var w = waiters.shift(); if (e.data.cmd === 'error') { wk.terminate(); if (w) w.rej(new Error(e.data.message)); } else if (w) w.res(e.data); };
     function call(msg, tr) { return new Promise(function (res, rej) { waiters.push({ res: res, rej: rej }); wk.postMessage(msg, tr || []); }); }
-    function grab() { ctx.drawImage(v, o.crop.x, o.crop.y, o.crop.w, o.crop.h, 0, 0, P.w, P.h); return ctx.getImageData(0, 0, P.w, P.h).data.buffer; }
+    function grab() { ctx.drawImage(v, o.crop.x, o.crop.y, o.crop.w, o.crop.h, 0, 0, P.w, P.h); var d = ctx.getImageData(0, 0, P.w, P.h).data; if (o.fx) KE.FX.apply(d, P.w, P.h, o.fx, o.fxk); return d.buffer; }
     var step = (o.end - o.start) / P.n, samples = [], ns = Math.min(8, P.n);
     var api = { cancel: function () { cancelled = true; } };
     v.pause();
@@ -182,7 +260,7 @@
       });
     });
     api.promise = chain.then(function () {
-      return call({ cmd: 'start', w: P.w, h: P.h, colors: Q.colors, spread: Q.spread, thr: Q.thr, samples: samples }, samples);
+      return call({ cmd: 'start', w: P.w, h: P.h, colors: Q.colors, spread: Q.spread, thr: Q.thr, sharpen: P.sharpen, samples: samples }, samples);
     }).then(function () {
       var i = 0, acc = 0;
       function one() {
@@ -198,9 +276,62 @@
       }
       return one();
     }).then(function () { return call({ cmd: 'finish', loop: o.loop !== false }); })
-      .then(function (r) { wk.terminate(); o.onProgress && o.onProgress(1); return new Blob([r.gif], { type: 'image/gif' }); },
+      .then(function (r) { wk.terminate(); o.onProgress && o.onProgress(1); return new Blob(r.parts, { type: 'image/gif' }); },
         function (e) { wk.terminate(); throw e; });
     return api;
+  };
+
+  /* ---------- video -> animated WebP ---------- */
+  function frameGrabber(o, P, w, h) {
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var ctx = c.getContext('2d', { willReadFrequently: true }); ctx.imageSmoothingQuality = 'high';
+    var sh = w === P.w ? P.sharpen : KE.sharpAmt(w / o.crop.w);
+    return function () {
+      ctx.drawImage(o.video, o.crop.x, o.crop.y, o.crop.w, o.crop.h, 0, 0, w, h);
+      var im = ctx.getImageData(0, 0, w, h);
+      if (o.fx) KE.FX.apply(im.data, w, h, o.fx, o.fxk);
+      if (sh) KE.sharpen(im.data, w, h, sh);
+      return im;
+    };
+  }
+  KE.makeAnimWebP = function (o) {
+    var v = o.video, P = KE.gifPlan(o), enc = new KE.AnimWebP(P.w, P.h, o.quality), grab = frameGrabber(o, P, P.w, P.h);
+    var step = (o.end - o.start) / P.n, cancelled = false, api = { cancel: function () { cancelled = true; } };
+    v.pause();
+    var i = 0, acc = 0;
+    function one() {
+      if (cancelled) return Promise.reject(new Error('cancel'));
+      if (i >= P.n) return Promise.resolve();
+      return KE.seek(v, Math.min(o.end - 0.001, o.start + i * step)).then(function () {
+        var next = Math.round((i + 1) * 1000 / o.fps), d = next - acc; acc = next;
+        var p = enc.add(grab(), d); i++; o.onProgress && o.onProgress(0.98 * i / P.n);
+        return p.then(one);
+      });
+    }
+    api.promise = one().then(function () { var b = enc.finish(o.loop !== false); o.onProgress && o.onProgress(1); return b; });
+    return api;
+  };
+  KE.estimateAnimWebP = function (o) {
+    var v = o.video, P = KE.gifPlan(o), lim = 9e5, k = Math.min(1, Math.sqrt(lim / (P.w * P.h)));
+    var w = Math.max(16, Math.round(P.w * k)) & ~1, h = Math.max(16, Math.round(P.h * k)) & ~1, grab = frameGrabber(o, P, w, h);
+    var step = (o.end - o.start) / P.n, m = Math.min(P.n, 5), wins = P.n > 14 ? [0.3, 0.72] : [0], key = [], diff = [], chain = Promise.resolve();
+    wins.forEach(function (pos) {
+      var i0 = Math.max(0, Math.min(P.n - m, Math.round(P.n * pos))), enc;
+      chain = chain.then(function () { enc = new KE.AnimWebP(w, h, o.quality); });
+      for (var j = 0; j < m; j++) (function (j) {
+        chain = chain.then(function () { if (o.stale()) throw new Error('stale'); return KE.seek(v, Math.min(o.end - 0.001, o.start + (i0 + j) * step)); })
+          .then(function () { return enc.add(grab(), 40); });
+      })(j);
+      chain = chain.then(function () {
+        var s = enc.sizes(); key.push(s[0]); var rest = s.slice(1), add = m - s.length;
+        if (rest.length || add) diff.push(rest.reduce(function (a, b) { return a + b; }, 0) / Math.max(1, rest.length + add));
+        enc.finish(true);
+      });
+    });
+    return chain.then(function () {
+      var kf = key.reduce(function (a, b) { return a + b; }, 0) / key.length, df = diff.length ? diff.reduce(function (a, b) { return a + b; }, 0) / diff.length : 0;
+      return Math.round(44 + (kf + df * (P.n - 1)) * Math.pow((P.w * P.h) / (w * h), 0.85));
+    });
   };
 
   /* ---------- crop widget ---------- */
@@ -285,15 +416,13 @@
       e.preventDefault(); el.setPointerCapture(e.pointerId);
       var w = e.target.closest('[data-t]'), t = me.tAt(e.clientX);
       if (w) drag = { k: w.getAttribute('data-t') };
-      else if (e.target.closest('.tr-sel') && me.b - me.a < me.dur * 0.999) drag = { k: 'move', t0: t, a: me.a, b: me.b };
-      else { drag = { k: 'seek' }; me.o.onSeek(t); me.setT(t); }
+      else { drag = { k: 'seek' }; me.o.onSeek(t); me.setT(t); } // anywhere else (inside the range too) moves the white line
       el.classList.add('drag');
     });
     el.addEventListener('pointermove', function (e) {
       if (!drag) return; var t = me.tAt(e.clientX), MIN = Math.min(0.2, me.dur);
       if (drag.k === 'a') { me.a = Math.min(Math.max(0, t), me.b - MIN); me.o.onSeek(me.a); me.setT(me.a); }
       else if (drag.k === 'b') { me.b = Math.max(Math.min(me.dur, t), me.a + MIN); me.o.onSeek(me.b); me.setT(me.b); }
-      else if (drag.k === 'move') { var d = t - drag.t0, L = drag.b - drag.a; var na = Math.min(Math.max(0, drag.a + d), me.dur - L); me.a = na; me.b = na + L; me.o.onSeek(me.a); me.setT(me.a); }
       else { me.o.onSeek(t); me.setT(t); }
       me.draw(); if (drag.k !== 'seek') me.o.onChange(me.a, me.b);
     });
@@ -351,6 +480,7 @@
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
     spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
     loop: '<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 014-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 01-4 4H4"/>',
+    wand: '<path d="M4 20L14.5 9.5"/><path d="M15 3l1.2 2.8L19 7l-2.8 1.2L15 11l-1.2-2.8L11 7l2.8-1.2z"/><path d="M19.5 13l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
   };
   KE.icon = function (n, cls) { return '<svg class="ic ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (IC[n] || '') + '</svg>'; };

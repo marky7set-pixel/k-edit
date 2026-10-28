@@ -57,7 +57,7 @@
   function showResult(r) {
     if (cur && cur.url) URL.revokeObjectURL(cur.url);
     cur = r; saved = null; KE.UI.fillResult(r);
-    $('resTitle').textContent = r.kind === 'gif' ? 'GIF آماده است' : 'WebP آماده است';
+    $('resTitle').textContent = r.kind === 'gif' ? 'GIF آماده است' : r.kind === 'awebp' ? 'WebP متحرک آماده است' : 'WebP آماده است';
     $('resStat').className = 'status'; $('resStat').textContent = 'هنوز ذخیره نشده';
     $('resReveal').hidden = true; $('resSave').querySelector('.ic') && null;
     $('res').hidden = false; $('btnBack').hidden = false;

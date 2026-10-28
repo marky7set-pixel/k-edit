@@ -28,7 +28,6 @@ import androidx.webkit.WebViewAssetLoader;
 
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -43,11 +42,8 @@ public class MainActivity extends Activity {
     private static final String HOST = "appassets.androidplatform.net";
     private WebView web;
     private ValueCallback<Uri[]> fileCb;
-    private final Map<String, ByteArrayOutputStream> bufs = new HashMap<>();
     private Uri sharedUri;
     private String sharedType = "", sharedName = "";
-    private Runnable afterPerm;
-    private String permId;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -180,117 +176,138 @@ public class MainActivity extends Activity {
         web.evaluateJavascript("!!(window.kBack&&window.kBack())", v -> { if (!"true".equals(v)) finish(); });
     }
 
-    private void reply(String id, JSONObject o) {
-        final String js = "window.__keSaved(" + JSONObject.quote(id) + "," + JSONObject.quote(o.toString()) + ")";
-        runOnUiThread(() -> web.evaluateJavascript(js, null));
+    /** One file being written straight to its final place, piece by piece (no big copy in memory). */
+    private static class Sink {
+        OutputStream os; Uri uri; File file; String name, mime, action;
     }
-
-    private JSONObject obj(boolean ok, String key, Object val) {
-        JSONObject o = new JSONObject();
-        try { o.put("ok", ok); if (key != null) o.put(key, val); } catch (Exception ignored) { }
-        return o;
-    }
-
-    private void saveOrAsk(String id, byte[] data, String name, String mime) {
-        if (Build.VERSION.SDK_INT < 29 && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-            afterPerm = () -> save(id, data, name, mime);
-            permId = id;
-            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, PERM);
-            return;
-        }
-        save(id, data, name, mime);
-    }
+    private final Map<String, Sink> sinks = new HashMap<>();
 
     @Override
     public void onRequestPermissionsResult(int req, String[] p, int[] g) {
         super.onRequestPermissionsResult(req, p, g);
-        if (req != PERM) return;
-        Runnable r = afterPerm; afterPerm = null;
-        if (g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED && r != null) r.run();
-        else if (permId != null) reply(permId, obj(false, "perm", true));
     }
 
-    private void save(final String id, final byte[] data, final String name, final String mime) {
-        new Thread(() -> {
-            try {
-                if (Build.VERSION.SDK_INT >= 29) {
-                    ContentValues cv = new ContentValues();
-                    cv.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    cv.put(MediaStore.MediaColumns.MIME_TYPE, mime);
-                    cv.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/K-Edit");
-                    cv.put(MediaStore.MediaColumns.IS_PENDING, 1);
-                    Uri u = getContentResolver().insert(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), cv);
-                    if (u == null) throw new Exception("insert");
-                    try (OutputStream os = getContentResolver().openOutputStream(u)) { os.write(data); }
-                    cv.clear();
-                    cv.put(MediaStore.MediaColumns.IS_PENDING, 0);
-                    getContentResolver().update(u, cv, null, null);
-                    reply(id, obj(true, "where", "Pictures/K-Edit/" + name));
-                } else {
-                    File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "K-Edit");
-                    if (!dir.exists()) dir.mkdirs();
-                    File f = new File(dir, name);
-                    int n = 1;
-                    String base = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
-                    String ext = name.contains(".") ? name.substring(name.lastIndexOf('.')) : "";
-                    while (f.exists()) f = new File(dir, base + " (" + (n++) + ")" + ext);
-                    try (FileOutputStream os = new FileOutputStream(f)) { os.write(data); }
-                    MediaScannerConnection.scanFile(this, new String[]{f.getAbsolutePath()}, new String[]{mime}, null);
-                    reply(id, obj(true, "where", "Pictures/K-Edit/" + f.getName()));
-                }
-            } catch (Exception e) {
-                reply(id, obj(false, "error", String.valueOf(e.getMessage())));
-            }
-        }).start();
+    private String json(boolean ok, String key, String val) {
+        JSONObject o = new JSONObject();
+        try { o.put("ok", ok); if (key != null) o.put(key, val); } catch (Exception ignored) { }
+        return o.toString();
     }
 
-    private void share(String id, byte[] data, String name, String mime) {
-        try {
+    private Sink openSink(String name, String mime, String action) throws Exception {
+        Sink k = new Sink();
+        k.name = name; k.mime = mime; k.action = action;
+        if ("share".equals(action)) {
             File dir = new File(getCacheDir(), "share");
             if (!dir.exists()) dir.mkdirs();
             File[] old = dir.listFiles();
             if (old != null) for (File o : old) o.delete();
+            k.file = new File(dir, name);
+            k.os = new FileOutputStream(k.file);
+        } else if (Build.VERSION.SDK_INT >= 29) {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+            cv.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+            cv.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/K-Edit");
+            cv.put(MediaStore.MediaColumns.IS_PENDING, 1);
+            k.uri = getContentResolver().insert(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), cv);
+            if (k.uri == null) throw new Exception("insert");
+            k.os = getContentResolver().openOutputStream(k.uri);
+        } else {
+            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "K-Edit");
+            if (!dir.exists()) dir.mkdirs();
+            String base = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+            String ext = name.contains(".") ? name.substring(name.lastIndexOf('.')) : "";
             File f = new File(dir, name);
-            try (FileOutputStream os = new FileOutputStream(f)) { os.write(data); }
-            Uri u = FileProvider.getUriForFile(this, "ir.kelid.kedit.files", f);
-            Intent s = new Intent(Intent.ACTION_SEND);
-            s.setType(mime);
-            s.putExtra(Intent.EXTRA_STREAM, u);
-            s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(s, "اشتراک فایل"));
-            reply(id, obj(true, "where", "share"));
-        } catch (Exception e) {
-            reply(id, obj(false, "error", String.valueOf(e.getMessage())));
+            int n = 1;
+            while (f.exists()) f = new File(dir, base + " (" + (n++) + ")" + ext);
+            k.file = f;
+            k.os = new FileOutputStream(f);
         }
+        if (k.os == null) throw new Exception("stream");
+        return k;
+    }
+
+    private String closeSink(Sink k) throws Exception {
+        k.os.flush();
+        k.os.close();
+        if ("share".equals(k.action)) {
+            final Uri u = FileProvider.getUriForFile(this, "ir.kelid.kedit.files", k.file);
+            final String mime = k.mime;
+            runOnUiThread(() -> {
+                try {
+                    Intent s = new Intent(Intent.ACTION_SEND);
+                    s.setType(mime);
+                    s.putExtra(Intent.EXTRA_STREAM, u);
+                    s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(s, "اشتراک فایل"));
+                } catch (Exception ignored) { }
+            });
+            return "share";
+        }
+        if (k.uri != null) {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            getContentResolver().update(k.uri, cv, null, null);
+            return "Pictures/K-Edit/" + k.name;
+        }
+        MediaScannerConnection.scanFile(this, new String[]{k.file.getAbsolutePath()}, new String[]{k.mime}, null);
+        return "Pictures/K-Edit/" + k.file.getName();
     }
 
     public class Bridge {
         @JavascriptInterface
-        public String begin() {
-            String id = UUID.randomUUID().toString();
-            synchronized (bufs) { bufs.put(id, new ByteArrayOutputStream()); }
-            return id;
-        }
-
-        @JavascriptInterface
-        public void append(String id, String b64) {
-            byte[] d = Base64.decode(b64, Base64.DEFAULT);
-            ByteArrayOutputStream o;
-            synchronized (bufs) { o = bufs.get(id); }
-            if (o != null) o.write(d, 0, d.length);
-        }
-
-        @JavascriptInterface
-        public void finish(final String id, final String name, final String mime, final String action) {
-            final byte[] data;
-            synchronized (bufs) {
-                ByteArrayOutputStream o = bufs.remove(id);
-                data = o == null ? new byte[0] : o.toByteArray();
+        public String open(String name, String mime, String action) {
+            if (!"share".equals(action) && Build.VERSION.SDK_INT < 29
+                    && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, PERM));
+                return "perm";
             }
-            runOnUiThread(() -> {
-                if ("share".equals(action)) share(id, data, name, mime);
-                else saveOrAsk(id, data, name, mime);
-            });
+            try {
+                Sink k = openSink(name, mime, action);
+                String id = UUID.randomUUID().toString();
+                synchronized (sinks) { sinks.put(id, k); }
+                return id;
+            } catch (Throwable e) {
+                return "err";
+            }
+        }
+
+        @JavascriptInterface
+        public boolean write(String id, String b64) {
+            Sink k;
+            synchronized (sinks) { k = sinks.get(id); }
+            if (k == null) return false;
+            try {
+                byte[] d = Base64.decode(b64, Base64.DEFAULT);
+                k.os.write(d);
+                return true;
+            } catch (Throwable e) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public String close(String id) {
+            Sink k;
+            synchronized (sinks) { k = sinks.remove(id); }
+            if (k == null) return json(false, "error", "unknown");
+            try {
+                return json(true, "where", closeSink(k));
+            } catch (Throwable e) {
+                return json(false, "error", String.valueOf(e.getMessage()));
+            }
+        }
+
+        @JavascriptInterface
+        public void abort(String id) {
+            Sink k;
+            synchronized (sinks) { k = sinks.remove(id); }
+            if (k == null) return;
+            try { k.os.close(); } catch (Throwable ignored) { }
+            try {
+                if (k.uri != null) getContentResolver().delete(k.uri, null, null);
+                if (k.file != null) k.file.delete();
+            } catch (Throwable ignored) { }
         }
 
         @JavascriptInterface

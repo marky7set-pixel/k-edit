@@ -53,10 +53,15 @@
           <div class="sl"><label>اشباع رنگ</label><input type="range" min="0" max="200" value="100" data-k="sat"><output data-v="sat">۰</output></div>
         </div>
         <div class="sec">
-          <h3>اندازهٔ خروجی</h3>
+          <h3>افکت کلید <small class="h-note" data-el="fxName">بدون افکت</small></h3>
+          <div class="fxstrip" data-el="fxstrip"></div>
+          <div class="sl fx-k"><label>شدت افکت</label><input type="range" min="0" max="100" value="50" data-k="fxk"><output data-v="fxk">۵۰</output></div>
+        </div>
+        <div class="sec">
+          <h3>وضوح خروجی <small class="h-note">بزرگ‌تر از اصل = افزایش کیفیت</small></h3>
           <div class="grid3">
-            <button class="chip sel" data-max="0">اصلی</button><button class="chip" data-max="2560">۲۵۶۰</button><button class="chip" data-max="1920">۱۹۲۰</button>
-            <button class="chip" data-max="1280">۱۲۸۰</button><button class="chip" data-max="1080">۱۰۸۰</button><button class="chip" data-max="800">۸۰۰</button>
+            <button class="chip sel" data-res="0">اصلی</button><button class="chip" data-res="480">480p</button><button class="chip" data-res="720">720p</button>
+            <button class="chip" data-res="1080">1080p</button><button class="chip" data-res="1440">2K</button><button class="chip" data-res="2160">4K</button>
           </div>
         </div>
         <div class="sec">
@@ -69,7 +74,12 @@
         </div>
       </div>
       <div class="insp-foot">
-        <div class="estline"><span class="status">خروجی</span><b data-el="est">—</b></div>
+        <div class="io">
+          <div class="io-c"><small>ورودی</small><b data-el="inDims">—</b><span data-el="inSize">—</span></div>
+          <span class="io-arrow" data-ic="prev"></span>
+          <div class="io-c out"><small>خروجی</small><b data-el="outDims">—</b><span class="goldv" data-el="outSize">—</span></div>
+        </div>
+        <div class="io-tags"><span class="tag" data-el="dSize">—</span><span class="tag" data-el="dRes">—</span></div>
         <button class="btn btn-gold big" data-act="export"><span data-ic="spark"></span>ساخت WebP</button>
       </div>
     </aside>
@@ -100,15 +110,26 @@
           </div>
         </div>
         <div class="sec">
-          <h3>عرض GIF</h3>
+          <h3>افکت کلید <small class="h-note" data-el="fxName">بدون افکت</small></h3>
+          <div class="fxstrip" data-el="fxstrip"></div>
+          <div class="sl fx-k"><label>شدت افکت</label><input type="range" min="0" max="100" value="50" data-k="fxk"><output data-v="fxk">۵۰</output></div>
+        </div>
+        <div class="sec">
+          <h3>قالب خروجی</h3>
+          <div class="grid2"><button class="chip sel" data-fmt="gif">GIF</button><button class="chip" data-fmt="webp">WebP متحرک</button></div>
+          <p class="hint" data-el="fmtHint"></p>
+        </div>
+        <div class="sec">
+          <h3>وضوح خروجی</h3>
           <div class="grid5">
-            <button class="chip" data-w="320">۳۲۰</button><button class="chip sel" data-w="480">۴۸۰</button><button class="chip" data-w="640">۶۴۰</button><button class="chip" data-w="800">۸۰۰</button><button class="chip" data-w="0">اصلی</button>
+            <button class="chip" data-res="360">360p</button><button class="chip sel" data-res="480">480p</button><button class="chip" data-res="720">720p</button><button class="chip" data-res="1080">1080p</button><button class="chip" data-res="0">اصلی</button>
           </div>
         </div>
         <div class="sec">
           <h3>فریم در ثانیه</h3>
-          <div class="grid5">
-            <button class="chip" data-fps="10">۱۰</button><button class="chip" data-fps="12">۱۲</button><button class="chip sel" data-fps="15">۱۵</button><button class="chip" data-fps="20">۲۰</button><button class="chip" data-fps="25">۲۵</button>
+          <div class="grid4">
+            <button class="chip" data-fps="10">۱۰</button><button class="chip" data-fps="12">۱۲</button><button class="chip sel" data-fps="15">۱۵</button><button class="chip" data-fps="20">۲۰</button>
+            <button class="chip" data-fps="25">۲۵</button><button class="chip" data-fps="30">۳۰</button><button class="chip" data-fps="50">۵۰</button>
           </div>
         </div>
         <div class="sec">
@@ -126,21 +147,23 @@
         </div>
       </div>
       <div class="insp-foot">
-        <div class="estline"><span class="status">خروجی</span><b data-el="est">—</b></div>
-        <button class="btn btn-gold big" data-act="export"><span data-ic="spark"></span>ساخت GIF</button>
+        <div class="io">
+          <div class="io-c"><small>ورودی</small><b data-el="inDims">—</b><span data-el="inSize">—</span></div>
+          <span class="io-arrow" data-ic="prev"></span>
+          <div class="io-c out"><small>خروجی</small><b data-el="outDims">—</b><span class="goldv" data-el="outSize">—</span></div>
+        </div>
+        <div class="io-tags"><span class="tag" data-el="dSize">—</span><span class="tag" data-el="dRes">—</span><span class="tag plain" data-el="frames">—</span></div>
+        <button class="btn btn-gold big" data-act="export"><span data-ic="spark"></span><span data-el="expLbl">ساخت GIF</span></button>
       </div>
     </aside>
     <div class="board glass">
       <div class="stage" data-el="stage">
-        <div class="frame" data-el="frame"><video data-el="video" muted playsinline></video><div class="crop" data-el="crop"></div></div>
+        <div class="frame" data-el="frame"><video data-el="video" muted playsinline></video><canvas class="fxcv" data-el="fxcv" hidden></canvas><div class="crop" data-el="crop"></div></div>
         <div class="drop"><div class="drop-ic" data-ic="vid"></div><b>ویدیو را اینجا رها کنید</b><span>یا <kbd>Ctrl</kbd>+<kbd>O</kbd> · MP4، WebM، MOV</span><button class="btn btn-gold" data-pick><span data-ic="open"></span>انتخاب ویدیو</button></div>
       </div>
       <div class="tl">
         <div class="transport">
-          <div class="tp-side">
-            <button class="btn" data-act="setA"><span data-ic="start"></span>شروع از اینجا</button>
-            <button class="btn" data-act="setB"><span data-ic="end"></span>پایان اینجا</button>
-          </div>
+          <button class="btn" data-act="setA"><span data-ic="start"></span>شروع از اینجا</button>
           <div class="tp-mid">
             <button class="ibtn" data-act="goA" title="رفتن به شروع" data-ic="start"></button>
             <button class="ibtn" data-act="stepB" title="یک فریم عقب" data-ic="prev"></button>
@@ -148,10 +171,10 @@
             <button class="ibtn" data-act="stepF" title="یک فریم جلو" data-ic="next"></button>
             <button class="ibtn" data-act="goB" title="رفتن به پایان" data-ic="end"></button>
           </div>
-          <div class="tp-side tp-time"><span data-ic="clock"></span><b data-el="tCur">—</b></div>
+          <button class="btn" data-act="setB">پایان اینجا<span data-ic="end"></span></button>
         </div>
         <div class="trim" data-el="trim"></div>
-        <div class="tl-labels"><span>شروع <b data-el="tA">—</b></span><span class="tl-len">طول بازه <b data-el="tLen">—</b></span><span>پایان <b data-el="tB">—</b></span></div>
+        <div class="tl-labels"><span>شروع <b data-el="tA">—</b></span><span class="tl-len">خط پخش <b data-el="tCur">—</b> · طول بازه <b data-el="tLen">—</b></span><span>پایان <b data-el="tB">—</b></span></div>
       </div>
     </div>
   </section>
@@ -166,7 +189,7 @@
     </div>
     <div class="res-prev stage" id="resPrev"><img id="resImg" alt=""></div>
     <div class="res-foot">
-      <div class="cmpbar"><div class="cell"><small id="resAL">فایل اصلی</small><b id="resA">—</b></div><span class="arrow" data-ic="prev"></span><div class="cell"><small>خروجی</small><b class="goldtxt" id="resB">—</b></div></div>
+      <div class="cmpbar"><div class="cell"><small id="resAL">فایل اصلی</small><b id="resA">—</b><em id="resAD"></em></div><span class="arrow" data-ic="prev"></span><div class="cell"><small>خروجی</small><b class="goldtxt" id="resB">—</b><em id="resBD"></em></div></div>
       <span class="save-badge" id="resPct">—</span>
       <span class="res-meta" id="resMeta"></span>
       <div class="res-acts">
@@ -182,6 +205,8 @@
 <input type="file" id="fImg" accept="image/*" hidden>
 <input type="file" id="fVid" accept="video/*" hidden>
 <script src="js/core.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/awebp.js"></script>
 <script src="js/editors.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/desk.js"></script>

@@ -1,7 +1,7 @@
 /* K-Edit GIF engine (Web Worker). Global palette (median cut + k-means), ordered dither,
    inter-frame transparency with tight rectangles, LZW. No dependencies. */
 'use strict';
-var W = 0, H = 0, PAL = null, NPAL = 0, LUT = null, DISP = null, FRAMES = [], SPREAD = 0, THR2 = 0, CANCEL = false;
+var W = 0, H = 0, PAL = null, NPAL = 0, LUT = null, DISP = null, FRAMES = [], SPREAD = 0, THR2 = 0, SHARP = 0;
 var T = 255; // transparent index
 var BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(function (v) { return (v + 0.5) / 16 - 0.5; });
 
@@ -67,6 +67,17 @@ function buildPalette(samples, maxColors) {
   NPAL = pal.length; return out;
 }
 
+function sharpen(d, w, h, amt) { // unsharp mask (3x3 box) for upscaled frames
+  var src = new Uint8ClampedArray(d), row = w * 4;
+  for (var y = 1; y < h - 1; y++) for (var x = 1; x < w - 1; x++) {
+    var i = y * row + x * 4;
+    for (var c = 0; c < 3; c++) {
+      var k = i + c, b = (src[k - row - 4] + src[k - row] + src[k - row + 4] + src[k - 4] + src[k] + src[k + 4] + src[k + row - 4] + src[k + row] + src[k + row + 4]) / 9;
+      d[k] = src[k] + amt * (src[k] - b);
+    }
+  }
+}
+
 function nearest(r, g, b) {
   var bd = 1e18, bp = 0;
   for (var p = 0; p < NPAL; p++) { var dr = r - PAL[p * 3], dg = g - PAL[p * 3 + 1], db = b - PAL[p * 3 + 2], dd = dr * dr * 3 + dg * dg * 4 + db * db * 2; if (dd < bd) { bd = dd; bp = p; } }
@@ -113,6 +124,7 @@ Bytes.prototype.str = function (s) { for (var i = 0; i < s.length; i++) this.pus
 Bytes.prototype.out = function () { return this.a.slice(0, this.n); };
 
 function addFrame(rgba, delay) {
+  if (SHARP) sharpen(rgba, W, H, SHARP);
   var n = W * H, idx = new Uint8Array(n), first = !DISP, x0 = W, y0 = H, x1 = -1, y1 = -1;
   if (first) DISP = new Uint8Array(n);
   for (var y = 0, i = 0; y < H; y++) {
@@ -140,36 +152,42 @@ function addFrame(rgba, delay) {
   FRAMES.push({ x: x0, y: y0, w: fw, h: fh, delay: delay, data: bytes.out(), tr: !first });
 }
 
-function finish(loop) {
-  var o = new Bytes();
+function finish(loop) { // returns a list of pieces, so no single huge buffer is ever needed
+  var parts = [], o = new Bytes();
   o.str('GIF89a'); o.u16(W); o.u16(H); o.push(0xF7); o.push(0); o.push(0);
   for (var i = 0; i < 768; i++) o.push(PAL[i]);
   if (loop) { o.push(0x21); o.push(0xFF); o.push(11); o.str('NETSCAPE2.0'); o.push(3); o.push(1); o.u16(0); o.push(0); }
+  parts.push(o.out().buffer);
   for (var f = 0; f < FRAMES.length; f++) {
-    var fr = FRAMES[f], dl = Math.max(2, Math.min(65535, Math.round(fr.delay)));
-    o.push(0x21); o.push(0xF9); o.push(4); o.push((1 << 2) | (fr.tr ? 1 : 0)); o.u16(dl); o.push(T); o.push(0);
-    o.push(0x2C); o.u16(fr.x); o.u16(fr.y); o.u16(fr.w); o.u16(fr.h); o.push(0);
-    for (var j = 0; j < fr.data.length; j++) o.push(fr.data[j]);
+    var fr = FRAMES[f], dl = Math.max(2, Math.min(65535, Math.round(fr.delay))), h = new Bytes();
+    h.push(0x21); h.push(0xF9); h.push(4); h.push((1 << 2) | (fr.tr ? 1 : 0)); h.u16(dl); h.push(T); h.push(0);
+    h.push(0x2C); h.u16(fr.x); h.u16(fr.y); h.u16(fr.w); h.u16(fr.h); h.push(0);
+    parts.push(h.out().buffer, fr.data.buffer);
   }
-  o.push(0x3B);
-  return o.out();
+  parts.push(new Uint8Array([0x3B]).buffer);
+  return parts;
 }
 
 self.onmessage = function (e) {
   var m = e.data;
   try {
     if (m.cmd === 'start') {
-      W = m.w; H = m.h; SPREAD = m.spread || 0; THR2 = (m.thr || 0) * (m.thr || 0); FRAMES = []; DISP = null; CANCEL = false;
+      W = m.w; H = m.h; SPREAD = m.spread || 0; THR2 = (m.thr || 0) * (m.thr || 0); SHARP = m.sharpen || 0; FRAMES = []; DISP = null;
+      if (SHARP) for (var q = 0; q < m.samples.length; q++) sharpen(new Uint8ClampedArray(m.samples[q]), W, H, SHARP);
       PAL = buildPalette(m.samples, Math.min(255, m.colors || 255));
       LUT = new Int16Array(1 << 18).fill(-1);
       self.postMessage({ cmd: 'ready', colors: NPAL });
     } else if (m.cmd === 'frame') {
       addFrame(new Uint8ClampedArray(m.buf), m.delay);
       self.postMessage({ cmd: 'framed', i: m.i });
-    } else if (m.cmd === 'finish') {
-      var g = finish(m.loop !== false);
+    } else if (m.cmd === 'stats') {
+      var sz = FRAMES.map(function (f) { return f.data.length + 20; });
       FRAMES = []; DISP = null;
-      self.postMessage({ cmd: 'done', gif: g.buffer }, [g.buffer]);
+      self.postMessage({ cmd: 'stats', sizes: sz });
+    } else if (m.cmd === 'finish') {
+      var parts = finish(m.loop !== false);
+      FRAMES = []; DISP = null;
+      self.postMessage({ cmd: 'done', parts: parts }, parts);
     }
   } catch (err) { self.postMessage({ cmd: 'error', message: String(err && err.message || err) }); }
 };

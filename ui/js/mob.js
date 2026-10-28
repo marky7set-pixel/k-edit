@@ -53,7 +53,7 @@
   function showResult(r) {
     if (cur && cur.url) URL.revokeObjectURL(cur.url);
     cur = r; KE.UI.fillResult(r);
-    $('resTitle').textContent = r.kind === 'gif' ? 'GIF آماده است' : 'WebP آماده است';
+    $('resTitle').textContent = r.kind === 'gif' ? 'GIF آماده است' : r.kind === 'awebp' ? 'WebP متحرک آماده است' : 'WebP آماده است';
     $('resStat').className = 'status'; $('resStat').textContent = 'ذخیره نشده';
     show('res', true);
   }
