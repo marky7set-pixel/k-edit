@@ -87,6 +87,102 @@
   };
   GpuNet.prototype.free = function () { if (this.A) { this.A.destroy(); this.B.destroy(); this.R.destroy(); } this.L.forEach(function (x) { x.w.destroy(); x.b.destroy(); x.a.destroy(); x.u.destroy(); }); };
 
+  /* ---------- GPU through WebGL2 (every Android WebView has it; WebGPU often not) ---------- */
+  var VS = '#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}';
+  var FS = '#version 300 es\nprecision highp float;precision highp int;precision highp sampler2DArray;\n' +
+    'uniform sampler2DArray X;uniform int nIn;uniform int act;uniform ivec2 sz;\n' +
+    'layout(std140) uniform Wb{mat4 w[144];vec4 b;vec4 a;};\nout vec4 o;\n' +
+    'void main(){ivec2 p=ivec2(gl_FragCoord.xy);vec4 s=b;\n' +
+    ' for(int g=0;g<16;g++){if(g>=nIn)break;\n' +
+    '  for(int t=0;t<9;t++){ivec2 q=p+ivec2(t-(t/3)*3-1,t/3-1);\n' +
+    '   if(q.x<0||q.y<0||q.x>=sz.x||q.y>=sz.y)continue;\n' +
+    '   s+=w[g*9+t]*texelFetch(X,ivec3(q,g),0);}}\n' +
+    ' o=act==1?max(s,0.0)+a*min(s,0.0):s;}';
+  function GlNet(M) {
+    var c = document.createElement('canvas'); c.width = c.height = 1;
+    var gl = c.getContext('webgl2', { antialias: false, depth: false, stencil: false, alpha: false, powerPreference: 'high-performance', failIfMajorPerformanceCaveat: true });
+    if (!gl) throw new Error('nogl');
+    var f32 = !!gl.getExtension('EXT_color_buffer_float'), f16 = f32 || !!gl.getExtension('EXT_color_buffer_half_float');
+    if (!f16) throw new Error('nofloat');
+    this.gl = gl; this.fmt = f32 && !U._force16 ? gl.RGBA32F : gl.RGBA16F; this.M = M; var me = this;
+    function sh(t, src) { var x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error('shader ' + gl.getShaderInfoLog(x)); return x; }
+    var pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error('link');
+    this.pr = pr; gl.useProgram(pr);
+    this.uIn = gl.getUniformLocation(pr, 'nIn'); this.uAct = gl.getUniformLocation(pr, 'act'); this.uSz = gl.getUniformLocation(pr, 'sz');
+    gl.uniform1i(gl.getUniformLocation(pr, 'X'), 0);
+    var bi = gl.getUniformBlockIndex(pr, 'Wb'); gl.uniformBlockBinding(pr, bi, 0);
+    var al = gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT), blk = 144 * 64 + 32, stride = Math.ceil(blk / al) * al;
+    // one block per (layer, 4 output channels): 144 mat4 (16 input groups x 9 taps), bias, prelu
+    var nb = 0; M.layers.forEach(function (l) { nb += l.cout / 4; });
+    var data = new Float32Array(nb * stride / 4), bk = 0; this.blocks = [];
+    M.layers.forEach(function (l) {
+      var s9 = l.cin * 9, list = [];
+      for (var og = 0; og < l.cout / 4; og++) {
+        var base = bk * stride / 4;
+        for (var g = 0; g < Math.ceil(l.cin / 4); g++) for (var t = 0; t < 9; t++) for (var cc = 0; cc < 4; cc++) for (var r = 0; r < 4; r++) {
+          var ic = g * 4 + cc, oc = og * 4 + r; data[base + (g * 9 + t) * 16 + cc * 4 + r] = ic < l.cin ? l.w[oc * s9 + ic * 9 + t] : 0;
+        }
+        for (r = 0; r < 4; r++) { data[base + 144 * 16 + r] = l.b[og * 4 + r]; data[base + 144 * 16 + 4 + r] = l.act ? l.a[og * 4 + r] : 0; }
+        list.push(bk * stride); bk++;
+      }
+      me.blocks.push(list);
+    });
+    this.ubo = gl.createBuffer(); gl.bindBuffer(gl.UNIFORM_BUFFER, this.ubo); gl.bufferData(gl.UNIFORM_BUFFER, data, gl.STATIC_DRAW); this.blk = blk;
+    this.fb = gl.createFramebuffer(); this.vao = gl.createVertexArray();
+    c.addEventListener('webglcontextlost', function () { me.lost = true; eng = null; speed = null; });
+  }
+  GlNet.prototype.prep = function (W, H) {
+    if (this.W === W && this.H === H) return;
+    var gl = this.gl, me = this;
+    if (this.T) this.T.forEach(function (t) { gl.deleteTexture(t); });
+    this.T = [0, 1].map(function () {
+      var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, me.fmt, W, H, 16); return t;
+    });
+    this.W = W; this.H = H;
+  };
+  GlNet.prototype.run = function (rgb, W, H) {
+    if (this.lost) return Promise.reject(new Error('lost'));
+    this.prep(W, H);
+    var gl = this.gl, me = this, pl = W * H, L = this.M.layers, px = new Float32Array(pl * 4), i;
+    for (i = 0; i < pl; i++) { px[i * 4] = rgb[i]; px[i * 4 + 1] = rgb[pl + i]; px[i * 4 + 2] = rgb[2 * pl + i]; }
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.T[0]); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, W, H, 1, gl.RGBA, gl.FLOAT, px);
+    gl.useProgram(this.pr); gl.bindVertexArray(this.vao); gl.bindFramebuffer(gl.FRAMEBUFFER, this.fb); gl.viewport(0, 0, W, H);
+    gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST); gl.uniform2i(this.uSz, W, H);
+    var src = 0;
+    L.forEach(function (l, li) {
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY, me.T[src]);
+      gl.uniform1i(me.uIn, Math.ceil(l.cin / 4)); gl.uniform1i(me.uAct, l.act ? 1 : 0);
+      me.blocks[li].forEach(function (off, og) {
+        gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, me.T[1 - src], 0, og);
+        gl.bindBufferRange(gl.UNIFORM_BUFFER, 0, me.ubo, off, me.blk);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      });
+      src = 1 - src;
+    });
+    var sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0); gl.flush();
+    return new Promise(function (res, rej) {
+      (function wait() {
+        if (me.lost) return rej(new Error('lost'));
+        var st = gl.clientWaitSync(sync, 0, 0);
+        if (st === gl.TIMEOUT_EXPIRED) return setTimeout(wait, 4);
+        gl.deleteSync(sync);
+        var out = new Float32Array(48 * pl), buf = new Float32Array(pl * 4);
+        for (var g = 0; g < 12; g++) {
+          gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, me.T[src], 0, g);
+          gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, buf);
+          for (var c = 0; c < 4; c++) { var ob = (g * 4 + c) * pl; for (var k = 0; k < pl; k++) out[ob + k] = buf[k * 4 + c]; }
+        }
+        if (gl.getError() !== gl.NO_ERROR) return rej(new Error('gl'));
+        res(out);
+      })();
+    });
+  };
+  GlNet.prototype.free = function () { var gl = this.gl; if (this.T) this.T.forEach(function (t) { gl.deleteTexture(t); }); gl.deleteBuffer(this.ubo); var x = gl.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); };
+
   /* ---------- CPU (workers) ---------- */
   function CpuNet(M) {
     var n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)); this.ws = []; this.q = [];
@@ -115,31 +211,37 @@
   U.engine = function () {
     if (eng) return eng;
     eng = U.load().then(function (M) {
-      return (U._forceCpu ? Promise.resolve(null) : U.gpu()).then(function (g) {
+      return (U._forceCpu || U._forceGl ? Promise.resolve(null) : U.gpu()).then(function (g) {
         if (g) { try { return { kind: 'gpu', net: new GpuNet(g, M), M: M }; } catch (e) {} }
+        if (!U._forceCpu) { try { return { kind: 'gl', net: new GlNet(M), M: M }; } catch (e) { U.glErr = String(e && e.message); } }
         return { kind: 'cpu', net: new CpuNet(M), M: M };
       });
     });
     eng.catch(function () { eng = null; });
     return eng;
   };
-  U.limits = function (kind) { // input pixels allowed, so the device is never pushed too hard
+  U._reset = function () { if (eng) eng.then(function (E) { try { E.net.free(); } catch (e) {} }); eng = null; speed = null; };
+  U.limits = function (kind, pxs) { // input pixels allowed: what this device finishes in about a minute and a half, within safe memory caps
     var phone = KE.platform === 'android' || /Android|iPhone|iPad/.test(navigator.userAgent);
-    if (kind === 'cpu') return { inPx: phone ? 0.08e6 : 0.3e6, outSide: phone ? 4096 : 8192 };
-    return { inPx: phone ? 1.0e6 : 4.2e6, outSide: phone ? 4096 : 8192 };
+    var cap = kind === 'cpu' ? (phone ? 0.3e6 : 1.0e6) : (phone ? 1.0e6 : 4.2e6), budget = phone ? 90 : 120;
+    var inPx = pxs ? Math.max(0.06e6, Math.min(cap, pxs * budget)) : (kind === 'cpu' ? (phone ? 0.08e6 : 0.3e6) : cap);
+    return { inPx: inPx, outSide: phone ? 4096 : 8192 };
   };
   // speed of this device in input pixels per second (measured once on a small tile)
   var speed = null;
+  function probe(E) {
+    var T = 48, rgb = new Float32Array(3 * T * T); for (var i = 0; i < rgb.length; i++) rgb[i] = (i * 37 % 255) / 255;
+    var rgb2 = new Float32Array(rgb), t0 = performance.now();
+    return E.net.run(rgb, T, T).then(function () { var t1 = performance.now(); return E.net.run(rgb2, T, T).then(function () {
+      var ms = Math.max(1, performance.now() - t1); return T * T / (ms / 1000) * (E.kind === 'gpu' ? 1.6 : E.kind === 'gl' ? 1.3 : E.net.parallel()); }); });
+  }
   U.speed = function () {
     if (speed) return speed;
     speed = U.engine().then(function (E) {
-      var T = 48, rgb = new Float32Array(3 * T * T); for (var i = 0; i < rgb.length; i++) rgb[i] = (i * 37 % 255) / 255;
-      var t0 = performance.now(), rgb2 = new Float32Array(rgb);
-      return E.net.run(rgb, T, T).then(function () {
-        var t1 = performance.now(); return E.net.run(rgb2, T, T).then(function () {
-          var ms = Math.max(1, performance.now() - t1), par = E.kind === 'cpu' ? E.net.parallel() : 1;
-          return { kind: E.kind, pxs: T * T / (ms / 1000) * (E.kind === 'gpu' ? 1.6 : par), first: t1 - t0 };
-        });
+      return probe(E).then(function (g) {
+        if (E.kind !== 'gl' || U._forceGl || g > 6000) return { kind: E.kind, pxs: g };
+        var C = { kind: 'cpu', net: new CpuNet(E.M), M: E.M }; // graphics looks emulated: compare with the processor and keep the faster
+        return probe(C).then(function (c) { if (c > g) { E.net.free(); eng = Promise.resolve(C); return { kind: 'cpu', pxs: c }; } C.net.free(); return { kind: 'gl', pxs: g }; });
       });
     });
     speed.catch(function () { speed = null; });
@@ -148,7 +250,7 @@
   // src: canvas with the (cropped, edited) picture. scale: 2, 3 or 4. Resolves to a canvas scale x bigger.
   U.run = function (src, scale, onProgress, cancelled) {
     return U.engine().then(function (E) {
-      var w = src.width, h = src.height, T = E.kind === 'gpu' ? (Math.min(w, h) > 600 ? 256 : 192) : 96;
+      var w = src.width, h = src.height, T = E.kind === 'gpu' ? (Math.min(w, h) > 600 ? 256 : 192) : E.kind === 'gl' ? 160 : 96;
       while (E.kind === 'gpu' && 64 * (T + 2 * PAD) * (T + 2 * PAD) * 4 > E.net.g.maxBuf) T -= 32;
       var sx = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
       var out = document.createElement('canvas'); out.width = w * 4; out.height = h * 4;

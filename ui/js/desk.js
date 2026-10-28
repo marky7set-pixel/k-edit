@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   KE.paintIcons();
+  var vEl = document.getElementById('ver'); if (vEl) vEl.textContent = KE.fa(KE.version);
   var mode = 'img', cur = null, saved = null;
   var $ = function (id) { return document.getElementById(id); };
   var edImg = $('edImg'), edVid = $('edVid'), stat = $('stat');
@@ -19,11 +20,12 @@
     mode = m; document.body.className = 'desk mode-' + m;
     document.querySelectorAll('.mode').forEach(function (b) { b.classList.toggle('sel', b.getAttribute('data-mode') === m); });
     edImg.hidden = m !== 'img'; edVid.hidden = m !== 'vid'; if (m === 'img') VE.v.pause();
-    ink(); sync(); requestAnimationFrame(function () { ed().layout(); });
+    ink(); sync(); KE.setAmb(ed().ambUrl); requestAnimationFrame(function () { ed().layout(); });
   }
   function sync() {
     var has = root().classList.contains('has-file');
     $('btnBack').hidden = !has && $('res').hidden;
+    document.body.classList.toggle('hasf', has);
     stat.className = 'status'; stat.textContent = has ? (mode === 'img' ? 'عکس باز است' : 'ویدیو باز است') : 'آماده';
   }
   document.querySelectorAll('.mode').forEach(function (b) { b.addEventListener('click', function () { closeResult(); setMode(b.getAttribute('data-mode')); }); });
@@ -35,7 +37,7 @@
     var isV = /^video\//.test(f.type) || /\.(mp4|webm|mov|m4v|mkv|ogv)$/i.test(f.name), isI = /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name);
     if (!isV && !isI) { ui.toast('فقط عکس یا ویدیو را می‌شود باز کرد', 'err'); return; }
     closeResult(); setMode(isV ? 'vid' : 'img');
-    ed().open(f).then(sync);
+    ed().open(f).then(function () { sync(); KE.setAmb(ed().ambUrl); });
   }
   $('fImg').addEventListener('change', function (e) { openFile(e.target.files[0]); e.target.value = ''; });
   $('fVid').addEventListener('change', function (e) { openFile(e.target.files[0]); e.target.value = ''; });
@@ -48,8 +50,8 @@
   window.addEventListener('paste', function (e) { var it = [].slice.call(e.clipboardData.items || []).filter(function (i) { return i.kind === 'file'; })[0]; if (it) openFile(it.getAsFile()); });
   // back: one step at a time
   function back() {
-    if (!$('res').hidden) { closeResult(); return true; }
-    if (root().classList.contains('has-file')) { ed().close(); sync(); return true; }
+    if (!$('res').hidden) { if (!KE.UI.info(false)) closeResult(); return true; }
+    if (root().classList.contains('has-file')) { ed().close(); sync(); KE.setAmb(null); return true; }
     return false;
   }
   $('btnBack').addEventListener('click', back);
@@ -60,16 +62,18 @@
     $('resTitle').textContent = { image: 'عکس آماده است', video: 'ویدیو آماده است', gif: 'GIF آماده است', awebp: 'WebP متحرک آماده است' }[r.kind] || 'آماده است';
     $('resStat').className = 'status'; $('resStat').textContent = 'هنوز ذخیره نشده';
     $('resReveal').hidden = true; $('resSave').querySelector('.ic') && null;
-    $('res').hidden = false; $('btnBack').hidden = false; requestAnimationFrame(function () { KE.UI.cmp && KE.UI.cmp.fit(); });
+    $('res').classList.toggle('media', r.kind !== 'image');
+    KE.UI.info(false); $('res').hidden = false; $('btnBack').hidden = false; requestAnimationFrame(function () { KE.UI.cmp && KE.UI.cmp.fit(); });
     stat.className = 'status ok'; stat.textContent = KE.size(r.blob.size);
   }
   function closeResult() { if ($('res').hidden) return; $('res').hidden = true; $('resVid').pause(); sync(); }
-  // inspector tabs: edit / output
-  document.querySelectorAll('.insp').forEach(function (insp) {
-    insp.querySelectorAll('[data-seg]').forEach(function (b) {
+  // dock tools: each one opens its own drawer
+  [edImg, edVid].forEach(function (sec) {
+    var insp = sec.querySelector('.insp');
+    sec.querySelectorAll('[data-seg]').forEach(function (b) {
       b.addEventListener('click', function () {
-        insp.querySelectorAll('[data-seg]').forEach(function (x) { x.classList.toggle('sel', x === b); });
-        insp.classList.toggle('out', b.getAttribute('data-seg') === 'out'); insp.querySelector('.insp-body').scrollTop = 0;
+        sec.querySelectorAll('[data-seg]').forEach(function (x) { x.classList.toggle('sel', x === b); x.setAttribute('aria-pressed', x === b); });
+        insp.setAttribute('data-mode', b.getAttribute('data-seg')); sec.setAttribute('data-tool', b.getAttribute('data-seg')); insp.scrollTop = 0;
       });
     });
   });

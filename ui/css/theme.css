@@ -118,7 +118,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px;
 .trim.drag .tr-ph { opacity: .8; }
 
 /* busy overlay */
-.busy { position: fixed; inset: 0; z-index: 50; display: none; place-items: center; background: rgba(3, 6, 14, .72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.busy-old { position: fixed; inset: 0; z-index: 50; display: none; place-items: center; background: rgba(3, 6, 14, .72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .busy.on { display: grid; animation: fade .2s ease; }
 .busy-card { width: min(340px, 86vw); padding: 28px 24px 22px; text-align: center; display: grid; gap: 14px; justify-items: center; }
 .ring { --p: 0; width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center; position: relative;
@@ -197,3 +197,39 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px;
 .cmpv .zm .ibtn { width: 30px; height: 30px; font-size: 18px; font-weight: 700; } .cmpv .zm b { min-width: 46px; text-align: center; font-size: 12.5px; color: var(--gold-hi); direction: ltr; } .cmpv .zm .btn { height: 30px; padding: 0 9px; font-size: 12px; }
 #resVid { position: absolute; inset: 0; margin: auto; max-width: calc(100% - 24px); max-height: calc(100% - 24px); border-radius: 10px; background: #000; }
 .fmts.c4 .fmt { padding-top: 8px; } .fmts.c4 .fmt .site { top: 3px; left: 4px; } .fmts.c4 .fmt .site .ic { width: 12px; height: 12px; }
+
+/* build screen: gold pan flipping on brand navy, percent, bar, time left */
+
+.kb{position:fixed;inset:0;z-index:50;display:none;place-items:center;background:radial-gradient(90% 70% at 50% 40%,#13213f 0%,#0a1224 55%,#05080f 100%)}
+.kb::before{content:'';position:absolute;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(241,203,131,.13),transparent 65%);top:50%;left:50%;transform:translate(-50%,-62%);pointer-events:none}
+.kb-in{position:relative;display:grid;justify-items:center;gap:6px;width:min(420px,88vw);text-align:center}
+.kb-t{font-weight:800;font-size:19px;letter-spacing:.2px;white-space:nowrap}
+.kb-t small{display:block;font-size:13px;font-weight:600;color:var(--muted);margin-top:2px}
+.kb svg{width:260px;height:auto;margin:6px 0 -6px;overflow:visible}
+.kb-p{font-size:46px;font-weight:900;line-height:1.1;direction:rtl}
+.kb-bar{width:240px;height:6px;border-radius:6px;background:rgba(241,203,131,.14);overflow:hidden;margin:4px 0 6px}
+.kb-bar i{display:block;height:100%;width:47%;border-radius:6px;background:linear-gradient(270deg,#c99e4c,#f1cb83,#fff3d1);box-shadow:0 0 12px rgba(241,203,131,.5);transition:width .25s}
+.kb-s{font-size:14.5px;color:var(--text);opacity:.85;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.kb-s .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold)}
+.kb .btn{margin-top:14px;height:44px;padding:0 26px;width:auto;display:inline-flex;align-items:center;gap:8px;border-radius:14px}.kb .btn .ic{width:18px;height:18px}
+/* pan animation (2 s loop) */
+#pan{transform-box:view-box;transform-origin:46px 104px;animation:pan 2s cubic-bezier(.45,.05,.35,1) infinite}
+#cake{transform-box:fill-box;transform-origin:50% 50%;animation:cake 2s cubic-bezier(.45,.05,.35,1) infinite}
+#shadow{transform-box:fill-box;transform-origin:50% 50%;animation:shadow 2s ease-in-out infinite}
+.sp{transform-box:fill-box;transform-origin:50% 50%;opacity:0;animation:sp 2s ease-out infinite}
+.sp.b{animation-name:sp2}.sp.c{animation-name:sp3}.sp.d{animation-name:sp4}
+@keyframes pan{0%{transform:rotate(0)}12%{transform:translateY(3px) rotate(4deg)}22%{transform:rotate(-13deg)}36%{transform:rotate(-5deg)}58%{transform:rotate(0)}78%{transform:rotate(0)}86%{transform:translateY(4px) rotate(4deg)}100%{transform:rotate(0)}}
+@keyframes cake{0%{transform:translate(0,0) scale(1,.32)}12%{transform:translate(0,3px) scale(1.08,.27)}22%{transform:translate(-6px,-22px) rotate(-25deg) scale(.92,.55)}45%{transform:translate(-14px,-80px) rotate(-165deg) scale(1,1)}55%{transform:translate(-14px,-82px) rotate(-205deg) scale(1,1)}76%{transform:translate(-2px,-8px) rotate(-345deg) scale(.95,.62)}86%{transform:translate(0,3px) rotate(-360deg) scale(1.14,.25)}100%{transform:translate(0,0) rotate(-360deg) scale(1,.32)}}
+@keyframes shadow{0%,12%,86%,100%{transform:scale(1);opacity:.32}45%,55%{transform:scale(.55);opacity:.12}}
+@keyframes sp{0%,18%{opacity:0;transform:translate(0,0) scale(.6)}24%{opacity:1}55%{opacity:.7;transform:translate(-22px,-58px) scale(1)}70%,100%{opacity:0;transform:translate(-30px,-50px) scale(.4)}}
+@keyframes sp2{0%,19%{opacity:0;transform:translate(0,0) scale(.6)}25%{opacity:.9}52%{opacity:.6;transform:translate(8px,-70px)}68%,100%{opacity:0;transform:translate(12px,-62px) scale(.4)}}
+@keyframes sp3{0%,20%{opacity:0;transform:translate(0,0)}26%{opacity:.8}50%{opacity:.5;transform:translate(-40px,-36px)}64%,100%{opacity:0;transform:translate(-50px,-26px) scale(.4)}}
+@keyframes sp4{0%,21%{opacity:0;transform:translate(0,0)}27%{opacity:.7}56%{opacity:.4;transform:translate(26px,-44px)}72%,100%{opacity:0;transform:translate(32px,-34px) scale(.4)}}
+
+.kb.on{display:grid;animation:fade .2s ease}
+.kb-p.spin{opacity:.0}
+.kb-bar.spin i{width:35%!important;animation:kbspin 1.2s ease-in-out infinite}
+@keyframes kbspin{0%{transform:translateX(120%)}100%{transform:translateX(-290%)}}
+.kb-s[hidden]{display:none}
+@media (max-height:600px){.kb svg{width:200px}.kb-p{font-size:38px}}
+#res .res-prev img, #res #resVid { max-width: 100%; max-height: 100%; border-radius: 0; box-shadow: none; }

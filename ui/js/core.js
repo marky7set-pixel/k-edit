@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var KE = window.KE = {};
-  KE.version = '1.3.0';
+  KE.version = '1.4.0';
   var FA = '۰۱۲۳۴۵۶۷۸۹';
   KE.fa = function (v) { return String(v).replace(/[0-9]/g, function (d) { return FA[d]; }).replace(/\./g, '٫'); };
   KE.size = function (b) {
@@ -228,6 +228,16 @@
     return { w: ow, h: oh, n: n, dur: span / speed, sharpen: KE.sharpAmt(ow / o.crop.w) };
   };
   // quick size estimate: encode two short windows and extrapolate (first frame full, the rest are only the changes)
+  // drawing surface for frames: scaling happens on a fast (GPU) canvas; pixels are read back only at output size and only when needed
+  KE.stage = function (w, h, read) {
+    var g = document.createElement('canvas'); g.width = w; g.height = h;
+    var gx = g.getContext('2d'); gx.imageSmoothingQuality = 'high';
+    var r = null, rx = null;
+    if (read) { r = document.createElement('canvas'); r.width = w; r.height = h; rx = r.getContext('2d', { willReadFrequently: true }); }
+    return { canvas: g, ctx: gx,
+      read: function () { rx.clearRect(0, 0, w, h); rx.drawImage(g, 0, 0); return rx.getImageData(0, 0, w, h); },
+      put: function (im) { rx.putImageData(im, 0, 0); return r; } };
+  };
   KE.estimateGif = function (o) {
     var v = o.video, P = KE.gifPlan(o), Q = KE.GIFQ[o.quality] || KE.GIFQ.balanced, step = (o.end - o.start) / P.n;
     var lim = 1.6e5, k = Math.min(1, Math.sqrt(lim / (P.w * P.h))), w = Math.max(16, Math.round(P.w * k)), h = Math.max(16, Math.round(P.h * k));
@@ -265,12 +275,11 @@
   };
   KE.makeGif = function (o) {
     var v = o.video, P = KE.gifPlan(o), Q = KE.GIFQ[o.quality] || KE.GIFQ.balanced;
-    var c = document.createElement('canvas'); c.width = P.w; c.height = P.h;
-    var ctx = c.getContext('2d', { willReadFrequently: true }); ctx.imageSmoothingQuality = 'high';
+    var stg = KE.stage(P.w, P.h, true), ctx = stg.ctx;
     var wk = new Worker('js/gifworker.js'), waiters = [], cancelled = false;
     wk.onmessage = function (e) { var w = waiters.shift(); if (e.data.cmd === 'error') { wk.terminate(); if (w) w.rej(new Error(e.data.message)); } else if (w) w.res(e.data); };
     function call(msg, tr) { return new Promise(function (res, rej) { waiters.push({ res: res, rej: rej }); wk.postMessage(msg, tr || []); }); }
-    function grab() { ctx.drawImage(v, o.crop.x, o.crop.y, o.crop.w, o.crop.h, 0, 0, P.w, P.h); var d = ctx.getImageData(0, 0, P.w, P.h).data; if (o.fx) KE.FX.apply(d, P.w, P.h, o.fx, o.fxk); return d.buffer; }
+    function grab() { ctx.drawImage(v, o.crop.x, o.crop.y, o.crop.w, o.crop.h, 0, 0, P.w, P.h); var d = stg.read().data; if (o.fx) KE.FX.apply(d, P.w, P.h, o.fx, o.fxk); return d.buffer; }
     var step = (o.end - o.start) / P.n, samples = [], ns = Math.min(8, P.n);
     var api = { cancel: function () { cancelled = true; } };
     v.pause();
@@ -288,13 +297,14 @@
       for (var k = 0; k < P.n; k++) times.push(Math.min(o.end - 0.001, o.start + k * step));
       return KE.runFrames(o, times, function (i, draw) {
         draw(ctx, o.crop, P.w, P.h);
-        var d = ctx.getImageData(0, 0, P.w, P.h).data; if (o.fx) KE.FX.apply(d, P.w, P.h, o.fx, o.fxk);
+        var d = stg.read().data; if (o.fx) KE.FX.apply(d, P.w, P.h, o.fx, o.fxk);
         var next = Math.round((i + 1) * 100 / o.fps), dl = next - acc; acc = next;
         var p = call({ cmd: 'frame', buf: d.buffer, delay: dl, i: i }, [d.buffer]);
+        o.onFrame && o.onFrame(i + 1, P.n);
         o.onProgress && o.onProgress(0.08 + 0.9 * (i + 1) / P.n);
         return p;
       }, function () { return cancelled; });
-    }).then(function () { return call({ cmd: 'finish', loop: o.loop !== false }); })
+    }).then(function () { o.onTail && o.onTail('finish'); return call({ cmd: 'finish', loop: o.loop !== false }); })
       .then(function (r) { wk.terminate(); o.onProgress && o.onProgress(1); return new Blob(r.parts, { type: 'image/gif' }); },
         function (e) { wk.terminate(); throw e; });
     return api;
@@ -302,12 +312,11 @@
 
   /* ---------- video -> animated WebP ---------- */
   function frameGrabber(o, P, w, h) {
-    var c = document.createElement('canvas'); c.width = w; c.height = h;
-    var ctx = c.getContext('2d', { willReadFrequently: true }); ctx.imageSmoothingQuality = 'high';
+    var stg = KE.stage(w, h, true), ctx = stg.ctx;
     var sh = w === P.w ? P.sharpen : KE.sharpAmt(w / o.crop.w);
     return function () {
       ctx.drawImage(o.video, o.crop.x, o.crop.y, o.crop.w, o.crop.h, 0, 0, w, h);
-      var im = ctx.getImageData(0, 0, w, h);
+      var im = stg.read();
       if (o.fx) KE.FX.apply(im.data, w, h, o.fx, o.fxk);
       if (sh) KE.sharpen(im.data, w, h, sh);
       return im;
@@ -317,21 +326,20 @@
     var v = o.video, P = KE.gifPlan(o), enc = new KE.AnimWebP(P.w, P.h, o.quality), grab = frameGrabber(o, P, P.w, P.h);
     var step = (o.end - o.start) / P.n, cancelled = false, api = { cancel: function () { cancelled = true; } };
     v.pause();
-    var acc = 0, times = [], cv = document.createElement('canvas'); cv.width = P.w; cv.height = P.h;
-    var cx = cv.getContext('2d', { willReadFrequently: true });
+    var acc = 0, times = [], stg = KE.stage(P.w, P.h, true), cx = stg.ctx;
     for (var k = 0; k < P.n; k++) times.push(Math.min(o.end - 0.001, o.start + k * step));
     function one() {
       return KE.runFrames(o, times, function (i, draw) {
         draw(cx, o.crop, P.w, P.h);
-        var im = cx.getImageData(0, 0, P.w, P.h);
+        var im = stg.read();
         if (o.fx) KE.FX.apply(im.data, P.w, P.h, o.fx, o.fxk);
         if (P.sharpen) KE.sharpen(im.data, P.w, P.h, P.sharpen);
         var next = Math.round((i + 1) * 1000 / o.fps), d = next - acc; acc = next;
-        var p = enc.add(im, d); o.onProgress && o.onProgress(0.98 * (i + 1) / P.n);
+        var p = enc.add(im, d); o.onFrame && o.onFrame(i + 1, P.n); o.onProgress && o.onProgress(0.98 * (i + 1) / P.n);
         return p;
       }, function () { return cancelled; });
     }
-    api.promise = one().then(function () { var b = enc.finish(o.loop !== false); o.onProgress && o.onProgress(1); return b; });
+    api.promise = one().then(function () { o.onTail && o.onTail('finish'); var b = enc.finish(o.loop !== false); o.onProgress && o.onProgress(1); return b; });
     return api;
   };
   KE.estimateAnimWebP = function (o) {
@@ -480,6 +488,7 @@
   /* ---------- icons (stroke, currentColor) ---------- */
   var IC = {
     back: '<path d="M9 5l7 7-7 7"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2" stroke-width="2.4"/>',
     img: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M4 18l5-5 4 4 3-3 4 4"/>',
     vid: '<rect x="3" y="5" width="13" height="14" rx="3"/><path d="M16 10l5-3v10l-5-3"/>',
     crop: '<path d="M7 3v13a1 1 0 001 1h13"/><path d="M3 7h13a1 1 0 011 1v13"/>',
@@ -518,4 +527,12 @@
   };
   KE.icon = function (n, cls) { return '<svg class="ic ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (IC[n] || '') + '</svg>'; };
   KE.paintIcons = function (root) { KE.$$(root || document, '[data-ic]').forEach(function (e) { e.insertAdjacentHTML('afterbegin', KE.icon(e.getAttribute('data-ic'))); }); };
+  // ambient: a tiny copy of the current picture, blurred behind the whole app
+  KE.ambOf = function (src, w, h) {
+    try { var W = 40, H = Math.max(8, Math.round(W * (h || 1) / (w || 1))); if (H > 80) H = 80; var c = document.createElement('canvas'); c.width = W; c.height = H;
+      c.getContext('2d').drawImage(src, 0, 0, W, H); return c.toDataURL('image/jpeg', 0.7); } catch (e) { return null; }
+  };
+  KE.setAmb = function (url) {
+    var d = document.documentElement; if (url) d.style.setProperty('--amb', 'url("' + url + '")'); d.classList.toggle('hasamb', !!url);
+  };
 })();

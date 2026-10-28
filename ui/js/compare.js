@@ -43,8 +43,9 @@
   };
   Compare.prototype.fit = function () { // the box matches the picture (contain)
     if (this.el.hidden || !this.w) return;
-    var p = this.el.parentElement, pad = 12, W = p.clientWidth - pad * 2, H = p.clientHeight - pad * 2 - 46, k = Math.min(W / this.w, H / this.h), w = this.w * k, h = this.h * k;
-    var s = this.el.style; s.width = w + 'px'; s.height = h + 'px'; s.left = (p.clientWidth - w) / 2 + 'px'; s.top = Math.max(pad, (p.clientHeight - 46 - h) / 2) + 'px';
+    var p = this.el.parentElement, full = !!p.closest('#res'), pad = full ? 0 : 12, foot = full ? 0 : 46; // result screen: edge to edge
+    var W = p.clientWidth - pad * 2, H = p.clientHeight - pad * 2 - foot, k = Math.min(W / this.w, H / this.h), w = this.w * k, h = this.h * k;
+    var s = this.el.style; s.width = w + 'px'; s.height = h + 'px'; s.left = (p.clientWidth - w) / 2 + 'px'; s.top = Math.max(pad, (p.clientHeight - foot - h) / 2) + 'px';
     this.apply();
   };
   Compare.prototype.setX = function (x) { this.x = Math.max(0, Math.min(1, x)); this.apply(); };

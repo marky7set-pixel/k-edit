@@ -180,6 +180,29 @@
       return silent ? null : { rate: sr, ch: ch, data: data, frames: s1 - s0 };
     }, function () { try { ctx && ctx.close(); } catch (e) {} return null; });
   };
+  // copy the source's own sound packets for the range (no decoding, original quality, almost instant)
+  KE.copyAudio = function (file, fmt, a, b) {
+    if (!file || !KE.audioTrack) return Promise.resolve(null);
+    return KE.audioTrack(file).then(function (au) {
+      if (!au || !(au.codec === 'opus' || (au.codec === 'aac' && fmt === 'mp4'))) return null;
+      var sel = au.samples.filter(function (x) { var h = (x.dur || 0.02) / 2; return x.t >= a - h && x.t < b - h; });
+      if (sel.length < 3) return null;
+      var t0 = sel[0].t, reads = [], g = null;
+      sel.forEach(function (x) {
+        if (x.data) return;
+        if (g && x.off === g.end && g.end - g.off < 4194304) { g.end += x.size; g.items.push(x); }
+        else { g = { off: x.off, end: x.off + x.size, items: [x] }; reads.push(g); }
+      });
+      var chain = Promise.resolve();
+      reads.forEach(function (r) { chain = chain.then(function () { return file.slice(r.off, r.end).arrayBuffer(); }).then(function (ab) { var u = new Uint8Array(ab); r.items.forEach(function (x) { x.buf = u.subarray(x.off - r.off, x.off - r.off + x.size); }); }); });
+      return chain.then(function () {
+        var bytes = 0, out = sel.map(function (x) { var d = x.data || x.buf; x.buf = null; bytes += d.length; return { data: d, pts: Math.round((x.t - t0) * 1e6), dur: Math.round((x.dur || 0.02) * 1e6), key: true }; });
+        var span = Math.max(0.1, sel[sel.length - 1].t + (sel[sel.length - 1].dur || 0.02) - t0);
+        return { kind: 'audio', codec: au.codec, rate: au.codec === 'opus' ? 48000 : au.rate, ch: au.ch, br: Math.round(bytes * 8 / span), desc: au.codec === 'aac' ? au.desc : null, preskip: au.preskip || 0, samples: out, copied: true };
+      });
+    }).catch(function () { return null; });
+  };
+  KE.copyAudioOk = function (file, fmt) { return KE.audioTrack ? KE.audioTrack(file).then(function (au) { return !!(au && (au.codec === 'opus' || (au.codec === 'aac' && fmt === 'mp4'))); }, function () { return false; }) : Promise.resolve(false); };
   KE.encodeAudio = function (pcm, fmt) {
     return KE.pickAudioCodec(fmt, pcm.rate, pcm.ch).then(function (pick) {
       if (!pick) return null;
@@ -228,9 +251,7 @@
   KE.makeVideo = function (o) {
     var v = o.video, P = KE.gifPlan(o), fmt = o.format, cancelled = false, api = { cancel: function () { cancelled = true; } }, t0 = performance.now();
     var br = KE.videoBitrate(fmt, P.w, P.h, o.fps, o.quality);
-    var c = document.createElement('canvas'); c.width = P.w; c.height = P.h;
-    var ctx = c.getContext('2d', { willReadFrequently: true }); ctx.imageSmoothingQuality = 'high';
-    var heavy = !!(o.fx || P.sharpen);
+    var heavy = !!(o.fx || P.sharpen), stg = KE.stage(P.w, P.h, heavy);
     v.pause();
     api.promise = KE.pickVideoCodec(fmt, P.w, P.h, o.fps, br).then(function (cfg) {
       if (!cfg) throw new Error('nocodec');
@@ -239,16 +260,19 @@
         error: function (e) { err = e; }
       });
       enc.configure(cfg);
-      var audioP = (o.sound && Math.abs((o.speed || 1) - 1) < 1e-3) ? KE.loadAudio(o.file, o.start, o.end) : Promise.resolve(null);
+      var wantA = !o.trial && o.sound && Math.abs((o.speed || 1) - 1) < 1e-3;
+      var audioP = wantA ? KE.copyAudio(o.file, fmt, o.start, o.end).then(function (t) { return t ? { track: t } : KE.loadAudio(o.file, o.start, o.end).then(function (pcm) { return pcm ? { pcm: pcm } : null; }); }) : Promise.resolve(null);
       var step = (o.end - o.start) / P.n, gop = Math.max(1, Math.round(o.fps * 2)), times = [];
       for (var k = 0; k < P.n; k++) times.push(Math.min(o.end - 0.001, o.start + k * step));
       function wait() { return enc.encodeQueueSize > 3 ? new Promise(function (r) { setTimeout(r, 3); }).then(wait) : Promise.resolve(); }
       function consume(i, draw) {
         if (err) throw err;
-        draw(ctx, o.crop, P.w, P.h);
-        if (heavy) { var im = ctx.getImageData(0, 0, P.w, P.h); if (o.fx) KE.FX.apply(im.data, P.w, P.h, o.fx, o.fxk); if (P.sharpen) KE.sharpen(im.data, P.w, P.h, P.sharpen); ctx.putImageData(im, 0, 0); }
-        var fr = new VideoFrame(c, { timestamp: Math.round(i * 1e6 / o.fps), duration: Math.round(1e6 / o.fps) });
+        draw(stg.ctx, o.crop, P.w, P.h);
+        var src = stg.canvas;
+        if (heavy) { var im = stg.read(); if (o.fx) KE.FX.apply(im.data, P.w, P.h, o.fx, o.fxk); if (P.sharpen) KE.sharpen(im.data, P.w, P.h, P.sharpen); src = stg.put(im); }
+        var fr = new VideoFrame(src, { timestamp: Math.round(i * 1e6 / o.fps), duration: Math.round(1e6 / o.fps) });
         enc.encode(fr, { keyFrame: i % gop === 0 }); fr.close();
+        o.onFrame && o.onFrame(i + 1, P.n);
         o.onProgress && o.onProgress(0.92 * (i + 1) / P.n);
         return wait();
       }
@@ -257,12 +281,14 @@
         enc.close(); if (err) throw err; if (!samples.length) throw new Error('empty');
         var vt = { kind: 'video', codec: cfg.codec.indexOf('vp8') === 0 ? 'vp8' : cfg.codec.indexOf('vp09') === 0 ? 'vp9' : 'avc', w: P.w, h: P.h, desc: desc, samples: samples };
         if (fmt === 'mp4' && !desc) throw new Error('nodesc');
-        o.onProgress && o.onProgress(0.94);
-        return audioP.then(function (pcm) { return pcm ? KE.encodeAudio(pcm, fmt) : null; }).then(function (at) {
+        o.onProgress && o.onProgress(0.94); o.onTail && o.onTail('sound');
+        var ta = performance.now();
+        return audioP.then(function (r) { return !r ? null : r.track ? r.track : KE.encodeAudio(r.pcm, fmt); }).then(function (at) {
+          if (wantA) KE.audioMs = performance.now() - ta;
           var tr = at ? [vt, at] : [vt];
           var blob = fmt === 'mp4' ? KE.muxMP4(tr) : KE.muxWebM(tr);
           o.onProgress && o.onProgress(1);
-          return { blob: blob, audio: !!at, audioCodec: at && at.codec, codec: vt.codec, ms: performance.now() - t0 };
+          return { blob: blob, audio: !!at, audioCodec: at && at.codec, audioCopied: !!(at && at.copied), codec: vt.codec, ms: performance.now() - t0 };
         });
       }, function (e) { try { enc.close(); } catch (x) {} throw e; });
     });

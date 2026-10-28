@@ -44,42 +44,77 @@
     if (!out.codec && t === 'vp08') out.codec = 'vp8';
     return out;
   }
+  // sample table of one trak: times (s, display order, edit list applied), byte offsets, key flags
+  function table(u, s, e, movTs) {
+    var md = find(u, s, e, ['mdia', 'mdhd']), ts = u32(u, md[0] + (u[md[0]] === 1 ? 20 : 12));
+    var st = find(u, s, e, ['mdia', 'minf', 'stbl']), S = st[0], E = st[1], box = {};
+    kids(u, S, E, function (bt, bs, be) { box[bt] = [bs, be]; });
+    var sizes = [], n, i, o, k;
+    o = box.stsz[0]; var fixed = u32(u, o + 4); n = u32(u, o + 8); for (i = 0; i < n; i++) sizes.push(fixed || u32(u, o + 12 + i * 4));
+    var co = [], c64 = !box.stco; o = (box.stco || box.co64)[0]; var nc = u32(u, o + 4); for (i = 0; i < nc; i++) co.push(c64 ? u64(u, o + 8 + i * 8) : u32(u, o + 8 + i * 4));
+    var stsc = []; o = box.stsc[0]; var ns = u32(u, o + 4); for (i = 0; i < ns; i++) stsc.push([u32(u, o + 8 + i * 12), u32(u, o + 12 + i * 12)]);
+    var dts = [], durs = [], d = 0; o = box.stts[0]; var nt = u32(u, o + 4); for (i = 0; i < nt; i++) { var cnt = u32(u, o + 8 + i * 8), dl = u32(u, o + 12 + i * 8); for (k = 0; k < cnt; k++) { dts.push(d); durs.push(dl); d += dl; } }
+    var cts = null; if (box.ctts) { cts = []; o = box.ctts[0]; var v = u[o], nct = u32(u, o + 4); for (i = 0; i < nct; i++) { var cc = u32(u, o + 8 + i * 8), off = v ? s32(u, o + 12 + i * 8) : u32(u, o + 12 + i * 8); for (k = 0; k < cc; k++) cts.push(off); } }
+    var sync = null; if (box.stss) { sync = {}; o = box.stss[0]; var nss = u32(u, o + 4); for (i = 0; i < nss; i++) sync[u32(u, o + 8 + i * 4) - 1] = 1; }
+    // edit list: shift so times match the <video> element
+    var shift = 0, el = find(u, s, e, ['edts', 'elst']);
+    if (el) { var ev = u[el[0]], ne = u32(u, el[0] + 4), p2 = el[0] + 8, empty = 0;
+      for (i = 0; i < ne; i++) { var sd2 = ev ? u64(u, p2) : u32(u, p2), mt = ev ? (u32(u, p2 + 8) | 0) * 4294967296 + u32(u, p2 + 12) : s32(u, p2 + 4); p2 += ev ? 20 : 12;
+        if (mt === -1) { empty += sd2 / movTs; continue; } shift = mt / ts - empty; break; } }
+    var samples = [], si = 0;
+    for (var ci = 0; ci < co.length; ci++) {
+      var per = 0; for (var q = stsc.length - 1; q >= 0; q--) if (stsc[q][0] - 1 <= ci) { per = stsc[q][1]; break; }
+      var off2 = co[ci];
+      for (k = 0; k < per && si < sizes.length; k++, si++) { var pts = dts[si] + (cts ? cts[si] : 0); samples.push({ off: off2, size: sizes[si], t: pts / ts - shift, dur: (durs[si] || 0) / ts, key: sync ? !!sync[si] : true }); off2 += sizes[si]; }
+    }
+    return { ts: ts, box: box, samples: samples };
+  }
+  function desc(u, o) { var tag = u[o++], len = 0, b; do { b = u[o++]; len = len * 128 + (b & 127); } while (b & 128); return { tag: tag, s: o, e: o + len }; }
+  function aacConfig(u, s, e) { // esds -> AudioSpecificConfig
+    var es = find(u, s, e, ['esds']); if (!es) return null;
+    var d = desc(u, es[0] + 4); if (d.tag !== 3) return null;
+    var o = d.s + 2, fl = u[o++]; if (fl & 0x80) o += 2; if (fl & 0x40) o += 1 + u[o]; if (fl & 0x20) o += 2;
+    var dc = desc(u, o); if (dc.tag !== 4 || u[dc.s] !== 0x40) return null;
+    var ds = desc(u, dc.s + 13); if (ds.tag !== 5) return null;
+    return u.slice(ds.s, ds.e);
+  }
   KE.demuxMP4 = function (file) {
     return topBoxes(file).then(function (u) {
-      var mvhd = find(u, 8, u.length, ['mvhd']), movTs = mvhd ? u32(u, mvhd[0] + (u[mvhd[0]] === 1 ? 20 : 12)) : 1000, track = null;
+      var mvhd = find(u, 8, u.length, ['mvhd']), movTs = mvhd ? u32(u, mvhd[0] + (u[mvhd[0]] === 1 ? 20 : 12)) : 1000, track = null, audio = null;
       kids(u, 8, u.length, function (t, s, e) {
-        if (t !== 'trak' || track) return;
-        var hd = find(u, s, e, ['mdia', 'hdlr']); if (!hd || typ(u, hd[0] + 8) !== 'vide') return;
+        if (t !== 'trak') return;
+        var hd = find(u, s, e, ['mdia', 'hdlr']); if (!hd) return;
+        var kind = typ(u, hd[0] + 8);
+        if (kind === 'soun' && !audio) {
+          try {
+            var T = table(u, s, e, movTs), sd0 = T.box.stsd, ae = null;
+            kids(u, sd0[0] + 8, sd0[1], function (et, es, ee) {
+              if (ae || et !== 'mp4a') return;
+              var ver = u16(u, es + 8), ch = u16(u, es + 16), rate = u32(u, es + 24) / 65536, cs = es + 28 + (ver === 1 ? 16 : ver === 2 ? 36 : 0);
+              var asc = aacConfig(u, cs, ee); if (!asc) return;
+              var f = ((asc[0] & 7) << 1) | (asc[1] >> 7), R = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000][f];
+              ae = { codec: 'aac', desc: asc, rate: R || rate || T.ts, ch: ((asc[1] >> 3) & 15) || ch || 2 };
+            });
+            if (ae && T.samples.length) { ae.samples = T.samples; audio = ae; }
+          } catch (x) { }
+          return;
+        }
+        if (kind !== 'vide' || track) return;
         var tk = find(u, s, e, ['tkhd']), v1 = u[tk[0]] === 1, mo = tk[0] + (v1 ? 52 : 40);
         var a = s32(u, mo) / 65536, bb = s32(u, mo + 4) / 65536, rot = (Math.round(Math.atan2(bb, a) * 180 / Math.PI) + 360) % 360;
-        var md = find(u, s, e, ['mdia', 'mdhd']), ts = u32(u, md[0] + (u[md[0]] === 1 ? 20 : 12));
-        var st = find(u, s, e, ['mdia', 'minf', 'stbl']), S = st[0], E = st[1], box = {};
-        kids(u, S, E, function (bt, bs, be) { box[bt] = [bs, be]; });
-        var sd = box.stsd, ent = null; kids(u, sd[0] + 8, sd[1], function (et, es, ee) { if (!ent) ent = codecFromEntry(u, et, es, ee); });
+        var T2 = table(u, s, e, movTs), sd = T2.box.stsd, ent = null; kids(u, sd[0] + 8, sd[1], function (et, es, ee) { if (!ent) ent = codecFromEntry(u, et, es, ee); });
         var w = u16(u, sd[0] + 8 + 8 + 24), h = u16(u, sd[0] + 8 + 8 + 26);
-        var sizes = [], n, i, o;
-        o = box.stsz[0]; var fixed = u32(u, o + 4); n = u32(u, o + 8); for (i = 0; i < n; i++) sizes.push(fixed || u32(u, o + 12 + i * 4));
-        var co = [], c64 = !box.stco; o = (box.stco || box.co64)[0]; var nc = u32(u, o + 4); for (i = 0; i < nc; i++) co.push(c64 ? u64(u, o + 8 + i * 8) : u32(u, o + 8 + i * 4));
-        var stsc = []; o = box.stsc[0]; var ns = u32(u, o + 4); for (i = 0; i < ns; i++) stsc.push([u32(u, o + 8 + i * 12), u32(u, o + 12 + i * 12)]);
-        var dts = [], d = 0; o = box.stts[0]; var nt = u32(u, o + 4); for (i = 0; i < nt; i++) { var cnt = u32(u, o + 8 + i * 8), dl = u32(u, o + 12 + i * 8); for (var k = 0; k < cnt; k++) { dts.push(d); d += dl; } }
-        var cts = null; if (box.ctts) { cts = []; o = box.ctts[0]; var v = u[o], nct = u32(u, o + 4); for (i = 0; i < nct; i++) { var cc = u32(u, o + 8 + i * 8), off = v ? s32(u, o + 12 + i * 8) : u32(u, o + 12 + i * 8); for (k = 0; k < cc; k++) cts.push(off); } }
-        var sync = null; if (box.stss) { sync = {}; o = box.stss[0]; var nss = u32(u, o + 4); for (i = 0; i < nss; i++) sync[u32(u, o + 8 + i * 4) - 1] = 1; }
-        // edit list: shift so times match the <video> element
-        var shift = 0, el = find(u, s, e, ['edts', 'elst']);
-        if (el) { var ev = u[el[0]], ne = u32(u, el[0] + 4), p2 = el[0] + 8, empty = 0;
-          for (i = 0; i < ne; i++) { var sd2 = ev ? u64(u, p2) : u32(u, p2), mt = ev ? (u32(u, p2 + 8) | 0) * 4294967296 + u32(u, p2 + 12) : s32(u, p2 + 4); p2 += ev ? 20 : 12;
-            if (mt === -1) { empty += sd2 / movTs; continue; } shift = mt / ts - empty; break; } }
-        var samples = [], si = 0;
-        for (var ci = 0; ci < co.length; ci++) {
-          var per = 0; for (var q = stsc.length - 1; q >= 0; q--) if (stsc[q][0] - 1 <= ci) { per = stsc[q][1]; break; }
-          var off2 = co[ci];
-          for (k = 0; k < per && si < sizes.length; k++, si++) { var pts = dts[si] + (cts ? cts[si] : 0); samples.push({ off: off2, size: sizes[si], t: pts / ts - shift, key: sync ? !!sync[si] : true }); off2 += sizes[si]; }
-        }
-        track = { codec: ent && ent.codec, desc: ent && ent.desc, w: w, h: h, rot: rot, samples: samples };
+        track = { codec: ent && ent.codec, desc: ent && ent.desc, w: w, h: h, rot: rot, samples: T2.samples };
       });
       if (!track || !track.codec || !track.samples.length) throw new Error('notrack');
+      track.audio = audio;
       return track;
     });
+  };
+  // audio of the source as an own track (no decoding): MP4 AAC, or WebM/MKV Opus
+  KE.audioTrack = function (file) {
+    var n = (file.name || '').toLowerCase(), t = file.type || '', webm = /webm|matroska|mkv/.test(t) || /\.(webm|mkv)$/.test(n);
+    return KE.openTrack(file).catch(function () { return webm ? KE.demuxWebM(file) : KE.demuxMP4(file); }).then(function (tr) { return tr.audio || null; });
   };
 
   /* ================= WebM / MKV ================= */
@@ -88,7 +123,7 @@
   KE.demuxWebM = function (file) {
     if (file.size > 1.5e9) return Promise.reject(new Error('big'));
     return file.arrayBuffer().then(function (ab) {
-      var u = new Uint8Array(ab), tracks = {}, vt = null, scale = 1e6, samples = [];
+      var u = new Uint8Array(ab), tracks = {}, vt = null, at = null, scale = 1e6, samples = [], asamp = [], abad = false;
       var MASTER = { 0x18538067: 1, 0x1654AE6B: 1, 0xAE: 1, 0xE0: 1, 0x1F43B675: 1, 0xA0: 1, 0x1549A966: 1 };
       var o = 0, clusterTc = 0, cur = null, endStack = [];
       while (o < u.length - 2) {
@@ -108,7 +143,13 @@
           else if (I === 0xE7) { clusterTc = 0; for (i = ds; i < de; i++) clusterTc = clusterTc * 256 + u[i]; }
           else if (I === 0xA3 || I === 0xA1) { // SimpleBlock / Block
             if (!vt) { for (var k in tracks) if (tracks[k].type === 1) { vt = tracks[k]; break; } }
-            var tn = vintAt(u, ds); if (vt && tn.v === vt.num) {
+            if (!at) { for (var k3 in tracks) if (tracks[k3].type === 2) { at = tracks[k3]; break; } }
+            var tn = vintAt(u, ds);
+            if (at && tn.v === at.num) {
+              var pa = ds + tn.len, ra = (u[pa] << 8 | u[pa + 1]); if (ra & 0x8000) ra -= 0x10000;
+              if (u[pa + 2] & 0x06) abad = true; else asamp.push({ data: u.subarray(pa + 3, de), t: (clusterTc + ra) * scale / 1e9 });
+            }
+            if (vt && tn.v === vt.num) {
               var p = ds + tn.len, rel = (u[p] << 8 | u[p + 1]); if (rel & 0x8000) rel -= 0x10000; var fl = u[p + 2];
               if (fl & 0x06) throw new Error('lacing');
               samples.push({ off: p + 3, size: de - p - 3, t: (clusterTc + rel) * scale / 1e9, key: I === 0xA3 ? !!(fl & 0x80) : null });
@@ -125,7 +166,13 @@
       if (!codec) throw new Error('codec');
       samples.forEach(function (s, i) { if (s.key === null) s.key = i === 0; s.data = u.subarray(s.off, s.off + s.size); });
       samples.sort(function (a, b) { return a.t - b.t; });
-      return { codec: codec, desc: cid === 'V_VP9' || cid === 'V_VP8' ? null : vt.priv, w: vt.w, h: vt.h, rot: 0, samples: samples, inMemory: true };
+      var audio = null;
+      if (at && !abad && asamp.length > 1 && at.codec === 'A_OPUS' && at.priv && at.priv.length >= 19) {
+        asamp.sort(function (a, b) { return a.t - b.t; });
+        asamp.forEach(function (x, i) { x.dur = i + 1 < asamp.length ? asamp[i + 1].t - x.t : 0.02; x.key = true; });
+        audio = { codec: 'opus', rate: 48000, ch: at.priv[9] || 2, preskip: at.priv[10] | (at.priv[11] << 8), samples: asamp };
+      }
+      return { codec: codec, desc: cid === 'V_VP9' || cid === 'V_VP8' ? null : vt.priv, w: vt.w, h: vt.h, rot: 0, samples: samples, inMemory: true, audio: audio };
     });
   };
 

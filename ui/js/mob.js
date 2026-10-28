@@ -16,7 +16,9 @@
   function back() {
     if (KE.UI.isBusy()) return true;
     if (stack.length <= 1) return false;
+    if (stack[stack.length - 1] === 'res' && KE.UI.info(false)) return true; // details open: close them first
     var top = stack.pop(), to = stack[stack.length - 1];
+    if (to === 'home') KE.setAmb(null);
     if (top === 'res') document.getElementById('resVid').pause();
     if (top === 'edVid') VE.close(); if (top === 'edImg') IE.close();
     document.querySelectorAll('.scr').forEach(function (s) { s.classList.remove('left'); s.classList.toggle('on', s.id === to); });
@@ -35,15 +37,26 @@
   document.querySelectorAll('[data-repick]').forEach(function (b) { b.addEventListener('click', function () { (b.closest('#edImg') ? $('fImg') : $('fVid')).click(); }); });
   $('fImg').addEventListener('change', function (e) { openIn('img', e.target.files[0]); e.target.value = ''; });
   $('fVid').addEventListener('change', function (e) { openIn('vid', e.target.files[0]); e.target.value = ''; });
-  // tabs
+  // dock row: each tab opens its own controls; the picture takes whatever room is left
   document.querySelectorAll('.ed').forEach(function (root) {
+    var ctl = root.querySelector('.ctl'), nm = root.querySelector('.ch-n');
     root.querySelectorAll('.tab').forEach(function (t) {
       t.addEventListener('click', function () {
         var k = t.getAttribute('data-tab');
-        root.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('sel', x === t); });
+        root.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('sel', x === t); x.setAttribute('aria-pressed', x === t); });
         root.querySelectorAll('.pane').forEach(function (p) { p.classList.toggle('on', p.getAttribute('data-pane') === k); });
+        root.setAttribute('data-tool', k); if (nm) nm.textContent = t.getAttribute('data-title');
+        fitCtl(); requestAnimationFrame(function () { (root.id === 'edImg' ? IE : VE).layout(); });
       });
     });
+    // header line never wraps or cuts: long estimates get a slightly smaller size
+    var ch = root.querySelector('.ch'), che = root.querySelector('.ch-e');
+    function fitCh() { if (!ch || !ch.offsetWidth) return; var f = 12.5; che.style.fontSize = ''; while (ch.scrollWidth > ch.clientWidth + 1 && f > 10) { f -= 0.5; che.style.fontSize = f + 'px'; } }
+    if (window.MutationObserver) new MutationObserver(fitCh).observe(che, { childList: true, subtree: true, characterData: true });
+    root.querySelectorAll('.tab').forEach(function (t) { t.addEventListener('click', fitCh); });
+    function fitCtl() { root.style.setProperty('--ctlh', ctl.offsetHeight + 'px'); }
+    if (window.ResizeObserver) new ResizeObserver(fitCtl).observe(ctl);
+    fitCtl();
   });
   if (window.ResizeObserver) {
     new ResizeObserver(function () { IE.layout(); }).observe(IE.stage);
@@ -53,10 +66,10 @@
   if (!KE.canShare()) { $('resShare').hidden = true; document.querySelector('.res-acts').classList.add('solo'); }
   function showResult(r) {
     if (cur && cur.url) URL.revokeObjectURL(cur.url);
-    cur = r; KE.UI.fillResult(r);
+    cur = r; KE.UI.fillResult(r); $('res').classList.toggle('media', r.kind !== 'image');
     $('resTitle').textContent = { image: 'عکس آماده است', video: 'ویدیو آماده است', gif: 'GIF آماده است', awebp: 'WebP متحرک آماده است' }[r.kind] || 'آماده است';
     $('resStat').className = 'status'; $('resStat').textContent = 'ذخیره نشده';
-    show('res', true); requestAnimationFrame(function () { KE.UI.cmp && KE.UI.cmp.fit(); });
+    KE.UI.info(false); show('res', true); requestAnimationFrame(function () { KE.UI.cmp && KE.UI.cmp.fit(); });
   }
   $('resSave').addEventListener('click', function () {
     if (!cur) return;

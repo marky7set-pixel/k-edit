@@ -1,22 +1,32 @@
 /* shared busy / toast / result helpers */
 (function () {
   'use strict';
-  var busyOn = false, cancelFn = null, tt;
+  var busyOn = false, cancelFn = null, tt, tick = null, own = false, manual = false, t0 = 0, eta = 0;
   var UI = KE.UI = {
     isBusy: function () { return busyOn; },
-    busy: function (label, p, onCancel) {
-      busyOn = true; cancelFn = onCancel || null;
+    busy: function (label, p, onCancel, opt) {
+      opt = opt || {}; busyOn = true; cancelFn = onCancel || null;
       document.getElementById('busyT').textContent = label;
+      var m = document.getElementById('busyM'); m.textContent = opt.meta || ''; m.hidden = !opt.meta;
       document.getElementById('busyX').hidden = !onCancel;
-      UI.progress(p); document.getElementById('busy').classList.add('on');
+      own = false; manual = p != null && p >= 0 && !opt.eta; t0 = performance.now(); eta = opt.eta || 0;
+      clearInterval(tick); UI.progress(p, true); UI.sub('', true);
+      if (eta) tick = setInterval(function () { // time-based until the job reports its own progress
+        var el = performance.now() - t0, rem = Math.max(0, eta - el);
+        if (!manual) UI.progress(Math.min(0.95, el / Math.max(1, eta)), true);
+        if (!own) UI.sub(rem < 400 ? 'آخرین مرحله…' : KE.etaText(rem) + ' مانده', true);
+      }, 250);
+      document.getElementById('busy').classList.add('on');
     },
-    progress: function (p) {
-      var r = document.getElementById('ring');
-      if (p == null || p < 0) { r.classList.add('spin'); return; }
-      r.classList.remove('spin'); var v = Math.round(p * 100); r.style.setProperty('--p', v); document.getElementById('ringP').textContent = KE.fa(v) + '٪';
+    progress: function (p, auto) {
+      var r = document.getElementById('ring'), t = document.getElementById('ringP');
+      if (!auto && p != null && p >= 0) manual = true;
+      if (p == null || p < 0) { r.classList.add('spin'); t.classList.add('spin'); return; }
+      r.classList.remove('spin'); t.classList.remove('spin'); var v = Math.round(p * 100);
+      r.firstElementChild.style.width = v + '%'; t.textContent = KE.fa(v) + '٪';
     },
-    idle: function () { busyOn = false; cancelFn = null; document.getElementById('busy').classList.remove('on'); UI.sub(''); },
-    sub: function (t) { var e = document.getElementById('busyS'); if (e) { e.textContent = t || ''; e.hidden = !t; } },
+    idle: function () { busyOn = false; cancelFn = null; clearInterval(tick); document.getElementById('busy').classList.remove('on'); UI.sub('', true); },
+    sub: function (t, auto) { if (!auto && t) own = true; var e = document.getElementById('busyS'); if (e) { document.getElementById('busySt').textContent = t || ''; e.hidden = !t; } },
     label: function (t) { document.getElementById('busyT').textContent = t; },
     toast: function (msg, kind) {
       var t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast on ' + (kind || ''); clearTimeout(tt);
@@ -27,11 +37,11 @@
       var set = function (k, html, cls) { KE.$$(root, '[data-el=' + k + ']').forEach(function (x) { x.innerHTML = html; if (cls !== undefined) x.className = x.className.replace(/ ?(up|down|wait)/g, '') + (cls ? ' ' + cls : ''); }); };
       set('inDims', KE.dims(e.inW, e.inH)); set('inSize', e.inSize ? KE.size(e.inSize) : '—');
       set('outDims', KE.dims(e.outW, e.outH)); set('est', KE.dims(e.outW, e.outH));
-      if (e.outSize == null) { set('outSize', 'در حال محاسبه', 'wait'); set('dSize', 'حجم: محاسبه…', 'wait'); }
+      if (e.outSize == null) { set('outSize', 'در حال محاسبه', 'wait'); set('dSize', 'حجم: محاسبه…', 'wait'); set('dPct', '…', 'wait'); }
       else {
         set('outSize', '≈ ' + KE.size(e.outSize), '');
-        if (e.inSize) { var d = Math.round((e.outSize / e.inSize - 1) * 100); set('dSize', d <= 0 ? 'حجم ' + KE.fa(-d) + '٪ کمتر' : 'حجم ' + KE.fa(d) + '٪ بیشتر', d <= 0 ? 'down' : 'up'); }
-        else set('dSize', '', '');
+        if (e.inSize) { var d = Math.round((e.outSize / e.inSize - 1) * 100); set('dSize', d <= 0 ? 'حجم ' + KE.fa(-d) + '٪ کمتر' : 'حجم ' + KE.fa(d) + '٪ بیشتر', d <= 0 ? 'down' : 'up'); set('dPct', d <= 0 ? '٪' + KE.fa(-d) + ' کمتر' : '٪' + KE.fa(d) + ' بیشتر', d <= 0 ? 'down' : 'up'); }
+        else { set('dSize', '', ''); set('dPct', '', ''); }
       }
       var r = Math.round(((e.outW * e.outH) / (e.inW * e.inH) - 1) * 100);
       set('dRes', Math.abs(r) < 1 ? 'وضوح بدون تغییر' : (r > 0 ? 'وضوح ' + KE.fa(r) + '٪ بیشتر' : 'وضوح ' + KE.fa(-r) + '٪ کمتر'), r > 0 ? 'down' : '');
@@ -62,6 +72,10 @@
     }
   };
   document.getElementById('busyX').addEventListener('click', function () { if (cancelFn) cancelFn(); });
+  // result details: open / close
+  UI.info = function (on) { var b = document.getElementById('resInfoBox'), t = document.getElementById('resInfo'); if (!b) return false; var was = !b.hidden; b.hidden = on === undefined ? was : !on; if (t) t.classList.toggle('on', !b.hidden); return was; };
+  (function () { var t = document.getElementById('resInfo'), x = document.getElementById('resInfoX'); if (t) t.addEventListener('click', function () { UI.info(); }); if (x) x.addEventListener('click', function () { UI.info(false); }); })();
+
   // safety net: an unexpected error never leaves the app stuck or blank
   function oops() { if (busyOn) UI.idle(); UI.toast('کار انجام نشد؛ دوباره امتحان کنید', 'err'); }
   window.addEventListener('error', function (e) { if (e && e.message) oops(); });
