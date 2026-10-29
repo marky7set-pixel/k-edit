@@ -22,6 +22,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 
 import androidx.core.content.FileProvider;
 import androidx.webkit.WebViewAssetLoader;
@@ -59,7 +60,13 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(0xFF060A15);
         web = new WebView(this);
         web.setBackgroundColor(0xFF060A15);
-        setContentView(web);
+        // the app always sits between the status bar and the phone's own buttons, never under them
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0xFF060A15);
+        root.setFitsSystemWindows(true);
+        root.addView(web, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(root);
+        if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(true);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);

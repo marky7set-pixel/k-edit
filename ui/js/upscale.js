@@ -4,25 +4,38 @@
   'use strict';
   var KE = window.KE, U = KE.Up = {};
   var PAD = 10;
-  function half(h) { var s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 31, f = h & 1023; if (e === 0) return s * f * Math.pow(2, -24); if (e === 31) return f ? NaN : s * Infinity; return s * (1 + f / 1024) * Math.pow(2, e - 15); }
-  var model = null;
+  var HT = null;
+  function half0(h) { var s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 31, f = h & 1023; if (e === 0) return s * f * Math.pow(2, -24); if (e === 31) return f ? NaN : s * Infinity; return s * (1 + f / 1024) * Math.pow(2, e - 15); }
+  function half(h) { if (!HT) { HT = new Float32Array(65536); for (var i = 0; i < 65536; i++) HT[i] = half0(i); } return HT[h]; }
+  // two official weight sets mixed by strength (Real-ESRGAN "denoise strength"): x4v3 smooths noise, wdn keeps fine texture
+  var raw = null, model = null, mixed = -1;
+  var DN = { soft: 0.25, mid: 0.55, strong: 0.9 };
+  U.strength = DN[KE.pref('ais')] ? KE.pref('ais') : 'mid';
+  function get(u, need) { return fetch(u).then(function (r) { if (!r.ok) throw new Error('nomodel'); return r.arrayBuffer(); }).catch(function (e) { if (need) throw e; return null; }); }
   U.load = function () {
-    if (model) return model;
-    model = Promise.all([fetch('ai/x4v3.json').then(function (r) { if (!r.ok) throw new Error('nomodel'); return r.json(); }), fetch('ai/x4v3.bin').then(function (r) { if (!r.ok) throw new Error('nomodel'); return r.arrayBuffer(); })])
-      .then(function (a) {
-        var meta = a[0], h = new Uint16Array(a[1]), p = 0, L = [];
-        meta.layers.forEach(function (l) {
-          var nw = l.cout * l.cin * 9, w = new Float32Array(nw), b = new Float32Array(l.cout), al = new Float32Array(l.cout), i;
-          for (i = 0; i < nw; i++) w[i] = half(h[p++]);
-          for (i = 0; i < l.cout; i++) b[i] = half(h[p++]);
-          if (l.act) for (i = 0; i < l.cout; i++) al[i] = half(h[p++]);
-          L.push({ cin: l.cin, cout: l.cout, act: l.act, w: w, b: b, a: al });
-        });
-        return { layers: L, scale: meta.scale || 4 };
+    raw = raw || Promise.all([fetch('ai/x4v3.json').then(function (r) { if (!r.ok) throw new Error('nomodel'); return r.json(); }), get('ai/x4v3.bin', true), get('ai/wdn.bin', false)])
+      .then(function (a) { var w = a[2] && a[2].byteLength === a[1].byteLength ? new Uint16Array(a[2]) : null; return { meta: a[0], x: new Uint16Array(a[1]), w: w }; });
+    raw.catch(function () { raw = null; });
+    var dn = DN[U.strength] || DN.mid;
+    if (model && mixed === dn) return model;
+    mixed = dn;
+    model = raw.then(function (R) {
+      var p = 0, L = [], X = R.x, W = R.w, k = W ? dn : 1;
+      function v() { var a = half(X[p]); if (W) a = k * a + (1 - k) * half(W[p]); p++; return a; }
+      R.meta.layers.forEach(function (l) {
+        var nw = l.cout * l.cin * 9, w = new Float32Array(nw), b = new Float32Array(l.cout), al = new Float32Array(l.cout), i;
+        for (i = 0; i < nw; i++) w[i] = v();
+        for (i = 0; i < l.cout; i++) b[i] = v();
+        if (l.act) for (i = 0; i < l.cout; i++) al[i] = v();
+        L.push({ cin: l.cin, cout: l.cout, act: l.act, w: w, b: b, a: al });
       });
-    model.catch(function () { model = null; });
+      return { layers: L, scale: R.meta.scale || 4, mix: !!W };
+    });
+    model.catch(function () { model = null; mixed = -1; });
     return model;
   };
+  // a new strength is used from the next build on (the network is rebuilt then, never while it works)
+  U.setStrength = function (k) { if (DN[k]) U.strength = k; };
 
   /* ---------- GPU ---------- */
   var WGSL = 'struct P { W: u32, H: u32, cin: u32, cout: u32, act: u32 };\n' +
@@ -207,20 +220,23 @@
   CpuNet.prototype.free = function () { this.ws.forEach(function (x) { x.w.terminate(); }); };
 
   /* ---------- engine ---------- */
-  var eng = null;
+  var eng = null, engDn = 0, prefer = null;
   U.engine = function () {
-    if (eng) return eng;
+    var dn = DN[U.strength] || DN.mid;
+    if (eng && engDn === dn) return eng;
+    if (eng) eng.then(function (E) { try { E.net.free(); } catch (e) {} });
+    engDn = dn;
     eng = U.load().then(function (M) {
-      return (U._forceCpu || U._forceGl ? Promise.resolve(null) : U.gpu()).then(function (g) {
+      var cpu = U._forceCpu || prefer === 'cpu';
+      return (cpu || U._forceGl ? Promise.resolve(null) : U.gpu()).then(function (g) {
         if (g) { try { return { kind: 'gpu', net: new GpuNet(g, M), M: M }; } catch (e) {} }
-        if (!U._forceCpu) { try { return { kind: 'gl', net: new GlNet(M), M: M }; } catch (e) { U.glErr = String(e && e.message); } }
+        if (!cpu) { try { return { kind: 'gl', net: new GlNet(M), M: M }; } catch (e) {} }
         return { kind: 'cpu', net: new CpuNet(M), M: M };
       });
     });
     eng.catch(function () { eng = null; });
     return eng;
   };
-  U._reset = function () { if (eng) eng.then(function (E) { try { E.net.free(); } catch (e) {} }); eng = null; speed = null; };
   U.limits = function (kind, pxs) { // sizes this device can hold in memory; time is shown, never used to switch the feature off
     var phone = KE.platform === 'android' || /Android|iPhone|iPad/.test(navigator.userAgent);
     var outPx = kind === 'cpu' ? (phone ? 12e6 : 36e6) : (phone ? 24e6 : 64e6);
@@ -240,19 +256,19 @@
       return probe(E).then(function (g) {
         if (E.kind !== 'gl' || U._forceGl || g > 6000) return { kind: E.kind, pxs: g };
         var C = { kind: 'cpu', net: new CpuNet(E.M), M: E.M }; // graphics looks emulated: compare with the processor and keep the faster
-        return probe(C).then(function (c) { if (c > g) { E.net.free(); eng = Promise.resolve(C); return { kind: 'cpu', pxs: c }; } C.net.free(); return { kind: 'gl', pxs: g }; });
+        return probe(C).then(function (c) { if (c > g) { E.net.free(); prefer = 'cpu'; eng = Promise.resolve(C); return { kind: 'cpu', pxs: c }; } C.net.free(); return { kind: 'gl', pxs: g }; });
       });
     });
     speed.catch(function () { speed = null; });
     return speed;
   };
-  // src: canvas with the (cropped, edited) picture. scale: 2, 3 or 4. Resolves to a canvas scale x bigger.
+  // src: canvas with the (cropped, edited) picture. scale: 1 (same size, rebuilt detail), 2, 3 or 4. Resolves to a canvas scale x bigger.
   U.run = function (src, scale, onProgress, cancelled) {
     return U.engine().then(function (E) {
       var w = src.width, h = src.height, T = E.kind === 'gpu' ? (Math.min(w, h) > 600 ? 256 : 192) : E.kind === 'gl' ? 160 : 96;
       while (E.kind === 'gpu' && 64 * (T + 2 * PAD) * (T + 2 * PAD) * 4 > E.net.g.maxBuf) T -= 32;
       var sx = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
-      var S = scale === 2 || scale === 3 ? scale : 4; // the network gives 4x; each tile is reduced at once so memory stays at the size asked for
+      var S = Math.max(1, Math.min(4, Math.round(scale) || 4)); // the network gives 4x; each tile is reduced at once (to 1x-4x) so memory stays at the size asked for
       var out = document.createElement('canvas'); out.width = w * S; out.height = h * S;
       var wts = {}; function axis(n) { // area weights from 4n source pixels to S*n target pixels
         var k = n + ':' + S; if (wts[k]) return wts[k]; var r = [], f = 4 / S;

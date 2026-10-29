@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var KE = window.KE = {};
-  KE.version = '1.5.0';
+  KE.version = '1.6.0';
   var FA = '۰۱۲۳۴۵۶۷۸۹';
   KE.fa = function (v) { return String(v).replace(/[0-9]/g, function (d) { return FA[d]; }).replace(/\./g, '٫'); };
   KE.size = function (b) {
@@ -14,6 +14,7 @@
     t = Math.max(0, t || 0); var m = Math.floor(t / 60), s = t - m * 60;
     return '\u2066' + KE.fa(m + ':' + (s < 10 ? '0' : '') + s.toFixed(1)) + '\u2069';
   };
+  KE.pref = function (k, v) { try { if (v === undefined) return localStorage.getItem('ke-' + k); localStorage.setItem('ke-' + k, v); } catch (e) { return null; } };
   KE.dims = function (w, h) { return '\u2066' + KE.fa(w) + '×' + KE.fa(h) + '\u2069'; };
   KE.$ = function (root, sel) { return root.querySelector(sel); };
   KE.$$ = function (root, sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); };
@@ -113,10 +114,9 @@
     }
   };
   KE.sharpAmt = function (k) { return k > 1.05 ? Math.min(0.9, 0.3 + 0.22 * (k - 1)) : 0; };
-  KE.renderOut = function (st, crop, res, scale) {
-    var sz = KE.outSize(crop, res), c = document.createElement('canvas');
-    if (scale && scale < 1) { sz.w = Math.max(1, Math.round(sz.w * scale)); sz.h = Math.max(1, Math.round(sz.h * scale)); }
-    c.width = sz.w; c.height = sz.h;
+  // sz: output size {w, h}. plain: no look and no sharpening (the input for the AI, which adds its own detail)
+  KE.renderOut = function (st, crop, sz, plain) {
+    var c = document.createElement('canvas'); c.width = sz.w; c.height = sz.h;
     var ctx = c.getContext('2d', { willReadFrequently: true });
     if (crop.w / sz.w > 2.5) { // big downscale in two steps keeps detail crisp
       var mid = document.createElement('canvas'); mid.width = sz.w * 2; mid.height = sz.h * 2;
@@ -124,7 +124,7 @@
       ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(mid, 0, 0, sz.w, sz.h);
       mid.width = mid.height = 1;
     } else KE.drawImg(ctx, st, crop, sz.w, sz.h);
-    var amt = KE.sharpAmt(KE.outSize(crop, res).w / crop.w), fx = st.fx && st.fxk > 0;
+    var amt = plain ? 0 : KE.sharpAmt(sz.w / crop.w), fx = !plain && st.fx && st.fxk > 0;
     if (amt || fx) {
       var id = ctx.getImageData(0, 0, sz.w, sz.h);
       if (fx) KE.FX.apply(id.data, sz.w, sz.h, st.fx, st.fxk);
@@ -132,6 +132,11 @@
       ctx.putImageData(id, 0, 0);
     }
     return c;
+  };
+  KE.resize = function (src, w, h) {
+    if (src.width === w && src.height === h) return src;
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.drawImage(src, 0, 0, w, h); return c;
   };
   KE.webp = function (canvas, q) {
     return new Promise(function (res, rej) { canvas.toBlob(function (b) { b ? res(b) : rej(new Error('encode')); }, 'image/webp', q); });
@@ -164,6 +169,7 @@
     var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(canvas, 0, 0); return c;
   };
   KE.encodeImg = function (canvas, fmt, q) {
+    if (fmt === 'png') return new Promise(function (res, rej) { canvas.toBlob(function (b) { b ? res(b) : rej(new Error('encode')); }, 'image/png'); });
     if (fmt === 'jpg') return new Promise(function (res, rej) { canvas.toBlob(function (b) { b ? res(b) : rej(new Error('encode')); }, 'image/jpeg', q); });
     if (fmt === 'avif') return KE.avif(canvas, q);
     return KE.webp(canvas, q);
@@ -186,25 +192,41 @@
       return KE.encodeImg(canvas, fmt, q).then(function (b) { if (onStep) onStep(1); return { blob: b, q: q }; });
     });
   };
-  KE.smartWebP = function (canvas, target, onStep) { return KE.smartEncode(canvas, 'webp', target, onStep); };
 
-  KE.estimateImg = function (st, crop, res, qm, q, fmt, up) {
-    var t0 = performance.now(), full = KE.imgOutSize(crop, res, up), px = full.w * full.h, LIM = fmt === 'avif' ? 9e5 : 2.2e6, k = px > LIM ? Math.sqrt(LIM / px) : 1;
-    var c = KE.renderOut(st, crop, up ? 0 : res, k * (up ? up : 1)), p;
-    if (fmt !== 'webp') c = KE.flatten(c);
-    if (qm === 'lossless' && fmt === 'webp') p = KE.webp(c, 1);
+  // size estimate from a real encode of a smaller copy, scaled back up
+  KE.estimateImg = function (st, crop, plan, qm, q, fmt) {
+    var t0 = performance.now(), px = plan.w * plan.h, LIM = fmt === 'avif' ? 9e5 : 2.2e6, k = px > LIM ? Math.sqrt(LIM / px) : 1;
+    var c = KE.renderOut(st, crop, { w: Math.max(1, Math.round(plan.w * k)), h: Math.max(1, Math.round(plan.h * k)) }), p;
+    if (fmt === 'jpg' || fmt === 'avif') c = KE.flatten(c);
+    if (fmt === 'png') p = KE.encodeImg(c, 'png');
+    else if (qm === 'lossless' && fmt === 'webp') p = KE.webp(c, 1);
     else if (qm === 'manual') p = KE.encodeImg(c, fmt, q);
     else p = KE.smartEncode(c, fmt, 42).then(function (r) { return r.blob; });
     return p.then(function (b) {
-      var ms = performance.now() - t0, ratio = px / (c.width * c.height), n = b.size * Math.pow(ratio, 0.92); c.width = c.height = 1;
+      var ms = performance.now() - t0, ratio = px / (c.width * c.height), n = b.size * Math.pow(ratio, 0.92) * (plan.ai ? 1.12 : 1); c.width = c.height = 1;
       return { size: Math.round(n), ms: ms * Math.pow(ratio, 0.9) };
     });
   };
-  KE.estimateWebP = function (st, crop, res, qm, q) { return KE.estimateImg(st, crop, res, qm, q, 'webp', 0).then(function (r) { return r.size; }); };
-  // output size of the image: AI upscale multiplies the crop, otherwise the resolution preset applies
-  KE.imgOutSize = function (crop, res, up) {
-    if (up) return { w: Math.round(crop.w * up), h: Math.round(crop.h * up) };
-    return KE.outSize(crop, res);
+  /* what the image build will make: final size, and when the AI is on, the size it starts from and its factor (1-4).
+     o: res (short side, 0 = keep), up (0 off, 1 enhance at the chosen size, 2-4 times), keep (never below the original), lim (device limits) */
+  KE.imgPlan = function (st, crop, o) {
+    var src = KE.oriented(st), ai = o.up || 0, cap = false, auto = false, w, h;
+    if (ai >= 2) { w = crop.w * ai; h = crop.h * ai; } else { var t = KE.outSize(crop, o.res); w = t.w; h = t.h; }
+    if (o.keep && w * h < src.w * src.h * 0.999) { var k = Math.sqrt(src.w * src.h / (w * h)); w *= k; h *= k; }
+    if (w > crop.w * 4) { cap = true; w = crop.w * 4; h = crop.h * 4; }
+    if (!ai && o.keep && w > crop.w * 1.05) { ai = 1; auto = true; } // the AI rebuilds the detail a bigger size needs
+    if (ai && o.lim) {
+      var f = Math.min(1, Math.sqrt(o.lim.outPx / (w * h)), o.lim.outSide / Math.max(w, h));
+      if (f < 0.999) { cap = true; w *= f; h *= f; }
+    }
+    w = Math.max(1, Math.round(w)); h = Math.max(1, Math.round(h));
+    var r = { w: w, h: h, ai: ai, auto: auto, cap: cap, S: 0, base: null };
+    if (ai) { // the network makes 4x and each tile is shrunk to S; a base too big for this device starts smaller and grows more
+      var S = Math.max(1, Math.ceil(w / crop.w - 1e-3)), inPx = o.lim ? o.lim.inPx : Infinity;
+      if (w * h / (S * S) > inPx) S = Math.ceil(Math.sqrt(w * h / inPx));
+      r.S = Math.min(4, S); r.base = { w: Math.max(1, Math.min(crop.w, Math.round(w / r.S))), h: Math.max(1, Math.min(crop.h, Math.round(h / r.S))) };
+    }
+    return r;
   };
 
   /* ---------- video -> GIF ---------- */
@@ -369,9 +391,9 @@
   function Crop(layer, onChange) {
     this.layer = layer; this.onChange = onChange || function () {};
     this.nw = 1; this.nh = 1; this.r = { x: 0, y: 0, w: 1, h: 1 }; this.aspect = null;
-    layer.innerHTML = '<div class="cb"><i class="g1"></i><i class="g2"></i><i class="g3"></i><i class="g4"></i><span class="cb-size"></span>' +
+    layer.innerHTML = '<div class="shd"><i></i></div><div class="cb"><i class="g1"></i><i class="g2"></i><i class="g3"></i><i class="g4"></i><span class="cb-size"></span>' +
       ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map(function (k) { return '<b class="hd hd-' + k + '" data-h="' + k + '"></b>'; }).join('') + '</div>';
-    this.box = layer.firstChild; this.sz = layer.querySelector('.cb-size');
+    this.box = layer.querySelector('.cb'); this.shade = layer.querySelector('.shd i'); this.sz = layer.querySelector('.cb-size');
     var me = this, drag = null;
     layer.addEventListener('pointerdown', function (e) {
       var h = e.target.getAttribute && e.target.getAttribute('data-h');
@@ -421,19 +443,11 @@
   Crop.prototype.isFull = function () { return this.r.x < 0.5 && this.r.y < 0.5 && Math.abs(this.r.w - this.nw) < 1 && Math.abs(this.r.h - this.nh) < 1; };
   Crop.prototype.rect = function () { var r = this.r; return { x: Math.round(r.x), y: Math.round(r.y), w: Math.max(1, Math.round(r.w)), h: Math.max(1, Math.round(r.h)) }; };
   Crop.prototype.draw = function () {
-    var r = this.r, s = this.box.style;
-    s.left = (r.x / this.nw * 100) + '%'; s.top = (r.y / this.nh * 100) + '%';
-    s.width = (r.w / this.nw * 100) + '%'; s.height = (r.h / this.nh * 100) + '%';
+    var r = this.r, me = this;
+    [this.box.style, this.shade.style].forEach(function (s) { s.left = (r.x / me.nw * 100) + '%'; s.top = (r.y / me.nh * 100) + '%'; s.width = (r.w / me.nw * 100) + '%'; s.height = (r.h / me.nh * 100) + '%'; });
     var q = this.rect(); this.sz.textContent = KE.dims(q.w, q.h);
   };
   KE.Crop = Crop;
-  // place an overlay exactly over contain-fitted media inside its box
-  KE.fitLayer = function (layer, boxEl, mw, mh) {
-    var bw = boxEl.clientWidth, bh = boxEl.clientHeight, k = Math.min(bw / mw, bh / mh);
-    var w = mw * k, h = mh * k, s = layer.style;
-    s.width = w + 'px'; s.height = h + 'px'; s.left = (boxEl.offsetLeft + (bw - w) / 2) + 'px'; s.top = (boxEl.offsetTop + (bh - h) / 2) + 'px';
-    return { w: w, h: h };
-  };
 
   /* ---------- trim widget (timeline flows left to right) ---------- */
   function Trim(el, o) {

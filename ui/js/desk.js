@@ -74,6 +74,7 @@
       b.addEventListener('click', function () {
         sec.querySelectorAll('[data-seg]').forEach(function (x) { x.classList.toggle('sel', x === b); x.setAttribute('aria-pressed', x === b); });
         insp.setAttribute('data-mode', b.getAttribute('data-seg')); sec.setAttribute('data-tool', b.getAttribute('data-seg')); insp.scrollTop = 0;
+        requestAnimationFrame(function () { (sec === edImg ? IE : VE).layout(); });
       });
     });
   });

@@ -57,17 +57,20 @@
   /* ================= image ================= */
   function ImageEditor(root, ui) {
     this.root = root; this.ui = ui; this.st = null; this.res = 0; this.qm = 'smart'; this.q = 0.85; this.aspectKey = 'free'; this.fx = 0; this.fxk = 0.5;
-    this.fmt = 'webp'; this.up = 0;
+    this.fmt = 'webp'; this.up = 0; this.keep = KE.pref('keep') === '1';
     var me = this;
     chips(root, 'data-ifmt', function (v) { me.fmt = v; me.fmtUi(); me.est(); });
     chips(root, 'data-up', function (v) { me.up = +v; me.upUi(); me.est(); });
+    chips(root, 'data-ais', function (v) { KE.Up.setStrength(v); KE.pref('ais', v); me.upUi(); });
+    selChip(root, 'data-ais', KE.Up.strength);
+    act(root, 'keep', function () { me.keep = !me.keep; KE.pref('keep', me.keep ? '1' : '0'); me.upUi(); me.est(); });
     KE.avifSupport(1024, 1024).then(function (c) { me.avifOk = !!c; me.fmtUi(); });
     this.strip = new FxStrip(root, function (i) { me.fx = i; if (me.st) { me.st.fx = i; me.paint(); me.est(); } });
     this.stage = $(root, '[data-el=stage]'); this.frame = $(root, '[data-el=frame]'); this.cv = $(root, '[data-el=canvas]');
-    this.crop = new KE.Crop($(root, '[data-el=crop]'), function (r, end) { me.est(); if (end) me.upUi(); });
+    this.crop = new KE.Crop($(root, '[data-el=crop]'), function (r, end) { if (end) me.upUi(); me.est(); });
     chips(root, 'data-aspect', function (v) { me.aspectKey = v; if (me.st) me.crop.setAspect(aspectOf(v, KE.oriented(me.st))); });
-    chips(root, 'data-res', function (v) { me.res = +v; me.est(); });
-    chips(root, 'data-qm', function (v) { me.qm = v; root.classList.toggle('qm-manual', v === 'manual'); me.est(); });
+    chips(root, 'data-res', function (v) { me.res = +v; me.upUi(); me.est(); });
+    chips(root, 'data-qm', function (v) { me.qm = v; root.classList.toggle('qm-manual', v === 'manual'); me.vals(); me.est(); });
     act(root, 'rotl', function () { me.turn(270); }); act(root, 'rotr', function () { me.turn(90); });
     act(root, 'fliph', function () { if (!me.st) return; me.st.fh = !me.st.fh; me.paint(); me.thumbs(); });
     act(root, 'flipv', function () { if (!me.st) return; me.st.fv = !me.st.fv; me.paint(); me.thumbs(); });
@@ -77,7 +80,7 @@
     $$(root, 'input[data-k]').forEach(function (r) {
       r.addEventListener('input', function () {
         var k = r.getAttribute('data-k');
-        if (k === 'q') { me.q = r.value / 100; me.lbl('q'); me.est(); return; }
+        if (k === 'q') { me.q = r.value / 100; me.lbl('q'); me.vals(); me.est(); return; }
         if (k === 'fxk') { me.fxk = r.value / 100; me.lbl('fxk'); if (me.st) { me.st.fxk = me.fxk; if (me.fx) { me.paint(); me.est(); } } return; }
         if (!me.st) return; me.st[k] = +r.value; me.lbl(k); me.paint(); me.est(); me.thumbs();
       });
@@ -90,6 +93,7 @@
     }
     window.addEventListener('resize', function () { me.layout(); });
     this.lbl('q'); this.lbl('fxk');
+    this.zoomable();
     this.hist = new History(this);
   }
   ImageEditor.prototype.thumbs = function () {
@@ -113,6 +117,7 @@
       me.root.classList.add('has-file'); me.ui.idle();
       $$(me.root, '[data-el=name]').forEach(function (e) { e.textContent = im.name; });
       $$(me.root, '[data-el=info]').forEach(function (e) { e.textContent = KE.dims(im.w, im.h) + ' | ' + KE.size(im.size); });
+      $$(me.root, '[data-el=infoS]').forEach(function (e) { e.textContent = KE.dims(im.w, im.h) + ' | ' + KE.size(im.size); });
       me.ambUrl = KE.ambOf(im.bmp, im.w, im.h); KE.setAmb(me.ambUrl);
       requestAnimationFrame(function () { me.layout(true); me.thumbs(); me.hist.reset(); me.alpha = /png|webp|gif|avif/.test(im.type) && KE.hasAlpha((function () { var c = document.createElement('canvas'); c.width = Math.min(512, im.w); c.height = Math.round(c.width * im.h / im.w); c.getContext('2d').drawImage(im.bmp, 0, 0, c.width, c.height); return c; })()); me.fmtUi(); me.upUi(); });
       return true;
@@ -122,61 +127,113 @@
   ImageEditor.prototype.turn = function (deg) {
     if (!this.st) return; this.st.rot = (this.st.rot + deg) % 360; this.layout(true); this.thumbs();
   };
+  // outside the crop tool the picture is shown already cut, as it will come out
+  function cview(ed) { var t = ed.root.getAttribute('data-tool'), on = t !== 'edit' && t !== 'crop' && !ed.crop.isFull(); ed.root.classList.toggle('cview', on); return on; }
   ImageEditor.prototype.layout = function (resetCrop) {
     if (!this.st || !this.stage.clientWidth) return;
-    var o = KE.oriented(this.st), pad = 8, bw = this.stage.clientWidth - pad * 2, bh = this.stage.clientHeight - pad * 2;
-    var k = Math.min(bw / o.w, bh / o.h, 4), w = Math.max(1, Math.floor(o.w * k)), h = Math.max(1, Math.floor(o.h * k));
-    this.frame.style.width = w + 'px'; this.frame.style.height = h + 'px';
-    var dpr = Math.min(2, window.devicePixelRatio || 1), cw = Math.min(o.w, Math.round(w * dpr)), ch = Math.min(o.h, Math.round(h * dpr));
-    if (this.cv.width !== cw || this.cv.height !== ch) { this.cv.width = cw; this.cv.height = ch; }
+    var o = KE.oriented(this.st);
     if (resetCrop) { this.crop.setNatural(o.w, o.h); if (this.aspectKey !== 'free') this.crop.setAspect(aspectOf(this.aspectKey, o), true); }
     else this.crop.setNatural(o.w, o.h, true);
-    this.paint(); this.est();
+    var cv = cview(this), r = cv ? this.crop.rect() : { x: 0, y: 0, w: o.w, h: o.h }, pad = document.body.classList.contains('mob') ? 16 : 10;
+    var bw = this.stage.clientWidth - pad * 2, bh = this.stage.clientHeight - pad * 2, z = this.zoom || 1;
+    var k = Math.min(bw / r.w, bh / r.h, 4) * z, w = Math.max(1, Math.floor(r.w * k)), h = Math.max(1, Math.floor(r.h * k));
+    this.frame.style.width = w + 'px'; this.frame.style.height = h + 'px'; this.view = r;
+    this.stage.classList.toggle('zoomed', z > 1.001);
+    var dpr = Math.min(2, window.devicePixelRatio || 1), cw = Math.min(r.w, Math.round(w * dpr)), ch = Math.min(r.h, Math.round(h * dpr)), m = Math.min(1, Math.sqrt(2.4e7 / (cw * ch)));
+    cw = Math.max(1, Math.round(cw * m)); ch = Math.max(1, Math.round(ch * m));
+    if (this.cv.width !== cw || this.cv.height !== ch) { this.cv.width = cw; this.cv.height = ch; }
+    this.paint(); this.est(); this.zoomUi();
   };
   ImageEditor.prototype.paint = function () {
     var me = this; if (!me.st || me.pending) return; me.pending = true;
     requestAnimationFrame(function () {
       me.pending = false; if (!me.st) return;
-      var o = KE.oriented(me.st), x = me.cv.getContext('2d'); x.clearRect(0, 0, me.cv.width, me.cv.height);
-      KE.drawImg(x, me.st, { x: 0, y: 0, w: o.w, h: o.h }, me.cv.width, me.cv.height, me.raw);
+      var x = me.cv.getContext('2d'); x.clearRect(0, 0, me.cv.width, me.cv.height);
+      KE.drawImg(x, me.st, me.view || KE.oriented(me.st), me.cv.width, me.cv.height, me.raw);
       if (!me.raw && me.st.fx) KE.FX.canvas(me.cv, me.st.fx, me.st.fxk);
     });
   };
-  var FMTN = { webp: 'WebP', avif: 'AVIF', jpg: 'JPG', mp4: 'MP4', webm: 'WebM', gif: 'GIF' };
+  /* zoom (desktop): wheel, double click, + / − and "whole picture"; drag the picture to move around */
+  ImageEditor.prototype.setZoom = function (z, cx, cy) {
+    z = Math.max(1, Math.min(8, z)); var s = this.stage, f = this.frame, old = this.zoom || 1; if (Math.abs(z - old) < 1e-3) return;
+    var sr = s.getBoundingClientRect(), fr = f.getBoundingClientRect();
+    if (cx == null) { cx = sr.left + sr.width / 2; cy = sr.top + sr.height / 2; }
+    var u = (cx - fr.left) / fr.width, v = (cy - fr.top) / fr.height;
+    this.zoom = z; this.layout();
+    var nr = f.getBoundingClientRect();
+    s.scrollLeft += nr.left + u * nr.width - cx; s.scrollTop += nr.top + v * nr.height - cy;
+  };
+  ImageEditor.prototype.zoomUi = function () { var z = this.zoom || 1; $$(this.root, '[data-el=zpct]').forEach(function (e) { e.textContent = KE.fa(Math.round(z * 100)) + '٪'; }); $$(this.root, '[data-act=zout],[data-act=zfit]').forEach(function (b) { b.disabled = z <= 1.001; }); };
+  ImageEditor.prototype.zoomable = function () {
+    var me = this, s = this.stage, pan = null; if (!$(this.root, '[data-act=zin]')) return; // desktop only
+    act(this.root, 'zin', function () { me.setZoom((me.zoom || 1) * 1.25); });
+    act(this.root, 'zout', function () { me.setZoom((me.zoom || 1) / 1.25); });
+    act(this.root, 'zfit', function () { me.setZoom(1); });
+    s.addEventListener('wheel', function (e) { if (!me.st) return; e.preventDefault(); me.setZoom((me.zoom || 1) * Math.pow(1.0015, -e.deltaY), e.clientX, e.clientY); }, { passive: false });
+    s.addEventListener('dblclick', function (e) { if (!me.st || e.target.closest('button,.hd')) return; me.setZoom((me.zoom || 1) > 1.4 ? 1 : 2.5, e.clientX, e.clientY); });
+    s.addEventListener('pointerdown', function (e) {
+      if (!me.st || (me.zoom || 1) <= 1.001 || e.target.closest('button,.hd')) return;
+      var inBox = e.target.closest('.cb'), editing = !me.root.classList.contains('cview') && /edit|crop/.test(me.root.getAttribute('data-tool'));
+      if (e.button === 0 && inBox && editing && !me.crop.isFull()) return; // that drag moves the crop frame
+      e.preventDefault(); e.stopPropagation(); pan = { x: e.clientX, y: e.clientY, l: s.scrollLeft, t: s.scrollTop }; s.setPointerCapture(e.pointerId); s.classList.add('panning');
+    }, true);
+    s.addEventListener('pointermove', function (e) { if (pan) { s.scrollLeft = pan.l - (e.clientX - pan.x); s.scrollTop = pan.t - (e.clientY - pan.y); } });
+    var end = function () { pan = null; s.classList.remove('panning'); };
+    s.addEventListener('pointerup', end); s.addEventListener('pointercancel', end);
+  };
+  var FMTN = { webp: 'WebP', avif: 'AVIF', jpg: 'JPG', png: 'PNG', mp4: 'MP4', webm: 'WebM', gif: 'GIF' };
   KE.FMTN = FMTN;
+  var QMN = { smart: 'هوشمند', lossless: 'بی‌افت', manual: 'دستی' }, UPN = ['خاموش', 'بهبود', '۲×', '۳×', '۴×'];
   ImageEditor.prototype.fmtUi = function () {
     var r = this.root, f = this.fmt, me = this;
     $$(r, '[data-ifmt=avif]').forEach(function (b) { b.disabled = me.avifOk === false; });
     if (f === 'avif' && this.avifOk === false) { this.fmt = f = 'webp'; selChip(r, 'data-ifmt', 'webp'); }
-    $$(r, '[data-el=expLbl]').forEach(function (e) { e.textContent = (me.up ? 'ارتقا و ساخت ' : 'ساخت ') + FMTN[f]; });
     $$(r, '[data-qm=lossless]').forEach(function (b) { b.hidden = f !== 'webp'; });
     if (f !== 'webp' && this.qm === 'lossless') { this.qm = 'smart'; selChip(r, 'data-qm', 'smart'); r.classList.remove('qm-manual'); }
-    var note = this.avifOk === false && f === 'webp' ? '' : (f !== 'webp' && this.st && this.alpha ? 'پس‌زمینهٔ شفاف سفید می‌شود' : '');
+    r.classList.toggle('is-png', f === 'png'); // PNG is always lossless: no quality to pick
+    var note = (f === 'jpg' || f === 'avif') && this.st && this.alpha ? 'پس‌زمینهٔ شفاف سفید می‌شود' : f === 'png' ? 'PNG بی‌افت است؛ حجمش زیاد می‌شود' : '';
     $$(r, '[data-el=fmtNote]').forEach(function (e) { e.textContent = note; e.hidden = !note; });
+    this.vals();
+  };
+  // the current choice written on each option button (phone) and on the build button
+  ImageEditor.prototype.vals = function () {
+    var r = this.root, me = this, set = function (k, t) { $$(r, '[data-el=' + k + ']').forEach(function (e) { e.textContent = t; }); };
+    var ai = this.plan ? this.plan.ai : this.up;
+    set('vFmt', FMTN[this.fmt]); set('vQ', this.fmt === 'png' ? 'بی‌افت' : this.qm === 'manual' ? 'دستی ' + KE.fa(Math.round(this.q * 100)) : QMN[this.qm]);
+    set('vRes', this.up >= 2 ? UPN[this.up] : this.res ? (this.res === 1440 ? '2K' : this.res === 2160 ? '4K' : this.res + 'p') : 'اصلی');
+    set('vAi', ai ? (this.plan && this.plan.auto ? 'خودکار' : UPN[ai]) : 'خاموش');
+    set('expLbl', (ai ? 'هوش مصنوعی | ' : 'ساخت ') + FMTN[this.fmt]);
+    r.classList.toggle('ai-on', !!ai);
   };
   ImageEditor.prototype.upUi = function () {
-    var r = this.root, me = this, up = this.up;
-    $$(r, '[data-el=resSec]').forEach(function (e) { e.classList.toggle('dim', up > 0); });
-    $$(r, '[data-el=resNote]').forEach(function (e) { e.textContent = up ? 'با ارتقا خاموش است' : 'بزرگ‌تر از اصل = بزرگ‌نمایی ساده'; });
-    $$(r, '[data-el=expLbl]').forEach(function (e) { e.textContent = (up ? 'ارتقا و ساخت ' : 'ساخت ') + FMTN[me.fmt]; });
-    if (!this.st) return;
-    var crop = this.crop.rect(), px = crop.w * crop.h;
-    $$(r, '[data-upd]').forEach(function (e) { var o = KE.imgOutSize(crop, 0, +e.getAttribute('data-upd')); e.textContent = KE.dims(o.w, o.h); });
-    KE.Up.speed().then(function (sp) {
-      var lim = KE.Up.limits(sp.kind, sp.pxs), big = px > lim.inPx, msg;
-      var fits = function (k) { return px * k * k <= lim.outPx && Math.max(crop.w, crop.h) * k <= lim.outSide; };
-      $$(r, '[data-up]').forEach(function (b) { var k = +b.getAttribute('data-up'); b.disabled = k > 0 && !fits(k); });
-      $$(r, '[data-upd]').forEach(function (e) { var k = +e.getAttribute('data-upd'); if (!fits(k)) e.textContent = 'خیلی بزرگ'; });
-      if (up && $(r, '[data-up="' + up + '"]').disabled) { me.up = up = 0; selChip(r, 'data-up', '0'); me.upUi(); me.est(); return; }
-      var secs = px / Math.max(1, sp.pxs);
-      if (big) msg = 'این عکس خودش بزرگ است؛ برای ارتقا، قسمتی از آن را برش بزنید';
-      else if (up) { var o = KE.imgOutSize(crop, 0, up); msg = 'خروجی ' + KE.dims(o.w, o.h) + ' | ' + KE.etaText(secs * 1000) + (secs > 180 ? ' (طولانی)' : ''); }
-      else msg = 'هوش مصنوعی جزئیات تازه می‌سازد | ' + KE.etaText(secs * 1000) + ' برای ۲×';
-      $$(r, '[data-el=upNote]').forEach(function (e) { e.innerHTML = msg; });
-    }, function () {
-      $$(r, '[data-up]').forEach(function (b) { b.disabled = +b.getAttribute('data-up') > 0; });
-      $$(r, '[data-el=upNote]').forEach(function (e) { e.textContent = 'ارتقا روی این دستگاه در دسترس نیست'; });
-    });
+    var r = this.root, me = this, up = this.up, keep = this.keep;
+    $$(r, '[data-act=keep]').forEach(function (b) { b.classList.toggle('on', keep); b.setAttribute('aria-checked', keep); });
+    r.classList.toggle('keep-on', keep);
+    $$(r, '[data-el=resSec]').forEach(function (e) { e.classList.toggle('dim', up >= 2); });
+    $$(r, '[data-el=resNote]').forEach(function (e) { e.textContent = up >= 2 ? 'اندازه را ضریب هوش مصنوعی تعیین می‌کند' : keep ? 'قفل: کمتر از اصل نمی‌شود' : ''; });
+    if (!this.st) { this.vals(); return; }
+    var o = KE.oriented(this.st), crop = this.crop.rect(), short = Math.min(o.w, o.h);
+    $$(r, '[data-res]').forEach(function (b) { var v = +b.getAttribute('data-res'); b.disabled = keep && v > 0 && v < short; });
+    if (keep && this.res && this.res < short) { this.res = 0; selChip(r, 'data-res', '0'); }
+    var lim = this.lim, plan = this.plan = KE.imgPlan(this.st, crop, { res: this.res, up: up, keep: keep, lim: lim });
+    $$(r, '[data-upd]').forEach(function (e) { var p = KE.imgPlan(me.st, crop, { up: +e.getAttribute('data-upd'), keep: keep, lim: lim }); e.textContent = KE.dims(p.w, p.h); });
+    this.vals();
+    var msg;
+    if (plan.ai && this.aiOk == null) this.aiProbe();
+    if (this.aiOk === false) msg = 'هوش مصنوعی روی این دستگاه در دسترس نیست';
+    else if (plan.ai && !this.aiOk) msg = 'آماده‌سازی هوش مصنوعی…';
+    else if (plan.ai) {
+      var secs = plan.base.w * plan.base.h / Math.max(1, this.pxs);
+      msg = (plan.auto ? 'برای حفظ وضوح، هوش مصنوعی روشن شد | ' : '') + (plan.cap ? 'تا حد ممکن: ' : 'خروجی ') + KE.dims(plan.w, plan.h) + ' | ' + KE.etaText(secs * 1000);
+    } else msg = 'هوش مصنوعی جزئیات تازه می‌سازد';
+    $$(r, '[data-el=upNote]').forEach(function (e) { e.textContent = msg; });
+    $$(r, '[data-up]').forEach(function (b) { b.disabled = +b.getAttribute('data-up') > 0 && me.aiOk === false; });
+  };
+  // the AI engine and its speed: measured once, only when the AI is first needed
+  ImageEditor.prototype.aiProbe = function () {
+    var me = this; if (this.aiOk != null) return Promise.resolve();
+    return this.aiP || (this.aiP = KE.Up.speed().then(function (sp) { me.aiOk = true; me.pxs = sp.pxs; me.lim = KE.Up.limits(sp.kind, sp.pxs); }, function () { me.aiOk = false; })
+      .then(function () { me.aiP = null; me.upUi(); me.est(); }));
   };
   KE.etaText = function (ms) {
     if (ms === 'wait') return 'سنجش زمان…'; if (ms == null) return '—';
@@ -226,57 +283,60 @@
   };
   ImageEditor.prototype.est = function () {
     if (!this.st) return;
-    var me = this, crop = this.crop.rect(), out = KE.imgOutSize(crop, this.res, this.up), o = KE.oriented(this.st);
-    var info = { inW: o.w, inH: o.h, inSize: this.st.size, outW: out.w, outH: out.h, outSize: null };
-    KE.UI.showEst(this.root, info); KE.setEta(this.root, null);
-    clearTimeout(this.et); var g = (this.eg = (this.eg || 0) + 1), up = this.up, fmt = this.fmt;
+    var me = this, crop = this.crop.rect(), o = KE.oriented(this.st), plan = this.plan = KE.imgPlan(this.st, crop, { res: this.res, up: this.up, keep: this.keep, lim: this.lim });
+    var info = { inW: o.w, inH: o.h, inSize: this.st.size, outW: plan.w, outH: plan.h, outSize: null };
+    KE.UI.showEst(this.root, info); KE.setEta(this.root, null); this.vals();
+    clearTimeout(this.et); var g = (this.eg = (this.eg || 0) + 1), fmt = this.fmt;
     this.et = setTimeout(function () {
       if (me.ui.isBusy() || !me.st) return;
-      Promise.all([KE.estimateImg(me.st, crop, me.res, me.qm, me.q, fmt, up), up ? KE.Up.speed() : null]).then(function (a) {
+      KE.estimateImg(me.st, crop, plan, me.qm, me.q, fmt).then(function (e) {
         if (g !== me.eg || !me.st) return;
-        info.outSize = a[0].size; KE.UI.showEst(me.root, info);
-        me.lastEta = a[0].ms + (up ? crop.w * crop.h / a[1].pxs * 1000 + 400 : 0); KE.setEta(me.root, me.lastEta);
+        info.outSize = e.size; KE.UI.showEst(me.root, info);
+        me.lastEta = e.ms + (plan.ai && me.pxs ? plan.base.w * plan.base.h / me.pxs * 1000 + 400 : 0); KE.setEta(me.root, me.lastEta);
       }).catch(function () {});
     }, 450);
   };
   ImageEditor.prototype.exportNow = function () {
     var me = this; if (!me.st || me.ui.isBusy()) return;
-    var crop = me.crop.rect(), fmt = me.fmt, up = me.up, t0 = performance.now(), cancelled = false, o = KE.oriented(me.st);
-    var od = KE.imgOutSize(crop, me.res, up);
-    me.ui.busy(up ? 'ارتقا با هوش مصنوعی' : 'در حال پخت و پز ' + FMTN[fmt], up || me.qm === 'smart' ? 0 : -1, up ? function () { cancelled = true; } : null,
-      { meta: (up ? 'عکس | \u2066' + KE.fa(up) + '×\u2069 | ' : (me.qm === 'smart' ? 'کمترین حجم بی‌افت | ' : 'عکس | ')) + KE.dims(od.w, od.h), eta: me.lastEta || 0 });
+    if (me.aiOk == null && KE.imgPlan(me.st, me.crop.rect(), { res: me.res, up: me.up, keep: me.keep }).ai) { // device limits first, so the size always fits in memory
+      me.ui.busy('آماده‌سازی هوش مصنوعی', -1); return me.aiProbe().then(function () { me.ui.idle(); me.exportNow(); });
+    }
+    var crop = me.crop.rect(), fmt = me.fmt, t0 = performance.now(), cancelled = false, o = KE.oriented(me.st);
+    var plan = KE.imgPlan(me.st, crop, { res: me.res, up: me.up, keep: me.keep, lim: me.lim }), ai = plan.ai && me.aiOk !== false;
+    me.ui.busy(ai ? 'پخت و پز با هوش مصنوعی' : 'در حال پخت و پز ' + FMTN[fmt], ai || me.qm === 'smart' ? 0 : -1, ai ? function () { cancelled = true; } : null,
+      { meta: (ai ? 'عکس | ' + (plan.S > 1 ? '\u2066' + KE.fa(plan.S) + '×\u2069' : 'بهبود جزئیات') + ' | ' : fmt === 'png' ? 'بی‌افت | ' : me.qm === 'smart' ? 'کمترین حجم بی‌افت | ' : 'عکس | ') + KE.dims(plan.w, plan.h), eta: me.lastEta || 0 });
     setTimeout(function () {
       var p;
-      if (up) {
-        var fxOld = me.st.fx; me.st.fx = 0; var base = KE.renderOut(me.st, crop, 0); me.st.fx = fxOld; var tUp = performance.now();
-        p = KE.Up.speed().then(function (sp) {
-          return KE.Up.run(base, up, function (f, d, n) {
-            me.ui.progress(f * 0.92);
-            var left = (performance.now() - tUp) / Math.max(1, d) * (n - d);
-            me.ui.sub('قطعهٔ ' + KE.fa(d) + ' از ' + KE.fa(n) + ' | ' + KE.etaText(left).replace('حدود ', 'حدود ') + ' مانده');
-          }, function () { return cancelled; });
-        }).then(function (c) {
+      if (ai) {
+        var base = KE.renderOut(me.st, crop, plan.base, true), tUp = performance.now();
+        p = KE.Up.run(base, plan.S, function (f, d, n) {
+          me.ui.progress(f * 0.92);
+          me.ui.sub(KE.etaText((performance.now() - tUp) / Math.max(1, d) * (n - d)) + ' مانده');
+        }, function () { return cancelled; }).then(function (c) {
           base.width = base.height = 1;
-          if (me.st.fx && me.st.fxk > 0) KE.FX.canvas(c, me.st.fx, me.st.fxk);
-          me.ui.sub(''); me.ui.label('ساخت ' + FMTN[fmt]); return c;
+          var r = KE.resize(c, plan.w, plan.h); if (r !== c) c.width = c.height = 1;
+          if (me.st.fx && me.st.fxk > 0) KE.FX.canvas(r, me.st.fx, me.st.fxk);
+          me.ui.sub(''); me.ui.label('در حال پخت و پز ' + FMTN[fmt]); return r;
         });
-      } else p = Promise.resolve(KE.renderOut(me.st, crop, me.res));
+      } else p = Promise.resolve(KE.renderOut(me.st, crop, plan));
       p.then(function (c) {
-        var cc = fmt === 'webp' ? c : KE.flatten(c), q;
-        if (me.qm === 'lossless' && fmt === 'webp') q = KE.webp(cc, 1).then(function (b) { return { blob: b, q: 1 }; });
+        var cc = fmt === 'jpg' || fmt === 'avif' ? KE.flatten(c) : c, q;
+        if (fmt === 'png') q = KE.encodeImg(cc, 'png').then(function (b) { return { blob: b, q: 1 }; });
+        else if (me.qm === 'lossless' && fmt === 'webp') q = KE.webp(cc, 1).then(function (b) { return { blob: b, q: 1 }; });
         else if (me.qm === 'manual') q = KE.encodeImg(cc, fmt, me.q).then(function (b) { return { blob: b, q: me.q }; });
-        else q = KE.smartEncode(cc, fmt, 42, function (f) { me.ui.progress(up ? 0.92 + f * 0.08 : f); });
+        else q = KE.smartEncode(cc, fmt, 42, function (f) { me.ui.progress(ai ? 0.92 + f * 0.08 : f); });
         return q.then(function (r) {
           var before = KE.beforeCanvas(me.st, crop, c.width, c.height);
-          me.ui.idle();
-          me.ui.result({ kind: 'image', fmt: fmt, blob: r.blob, url: URL.createObjectURL(r.blob), w: c.width, h: c.height, inW: o.w, inH: o.h, cropW: crop.w, cropH: crop.h, orig: me.st.size, origType: me.st.type,
-            name: KE.baseName(me.st.name) + '-kedit.' + (fmt === 'jpg' ? 'jpg' : fmt), mode: me.qm, q: r.q, up: up, ms: performance.now() - t0, before: before });
+          me.ui.done(function () {
+            me.ui.result({ kind: 'image', fmt: fmt, blob: r.blob, url: URL.createObjectURL(r.blob), w: c.width, h: c.height, inW: o.w, inH: o.h, cropW: crop.w, cropH: crop.h, orig: me.st.size, origType: me.st.type,
+              name: KE.baseName(me.st.name) + '-kedit.' + fmt, mode: fmt === 'png' ? 'lossless' : me.qm, q: r.q, up: ai ? plan.S : 0, ai: ai, ms: performance.now() - t0, before: before });
+          });
           if (cc !== c) cc.width = cc.height = 1;
         });
       }).catch(function (e) {
         me.ui.idle(); me.ui.sub('');
         if (String(e && e.message) === 'cancel') return;
-        me.ui.toast(up ? 'ارتقا انجام نشد؛ عکس کوچک‌تری بدهید یا ۲× را بزنید' : 'ساخت ' + FMTN[fmt] + ' انجام نشد؛ دوباره امتحان کنید', 'err');
+        me.ui.toast(ai ? 'هوش مصنوعی کامل نشد؛ برش کوچک‌تری بزنید یا ضریب کمتری بگذارید' : 'ساخت ' + FMTN[fmt] + ' انجام نشد؛ دوباره امتحان کنید', 'err');
       });
     }, 30);
   };
@@ -304,13 +364,13 @@
       onChange: function (a, b) { me.a = a; me.b = b; me.times(); me.est(); }
     });
     chips(root, 'data-aspect', function (val) { me.aspectKey = val; if (me.ready) me.crop.setAspect(aspectOf(val, { w: v.videoWidth, h: v.videoHeight })); });
-    root.addEventListener('click', function (e) { var b = e.target.closest('[data-fps]'); if (!b || !root.contains(b)) return; me.fps = +b.getAttribute('data-fps'); selChip(root, 'data-fps', me.fps); me.est(); });
+    root.addEventListener('click', function (e) { var b = e.target.closest('[data-fps]'); if (!b || !root.contains(b)) return; me.fps = +b.getAttribute('data-fps'); selChip(root, 'data-fps', me.fps); me.vals(); me.est(); });
     act(root, 'sound', function (e) { me.sound = !me.sound; e.currentTarget.classList.toggle('sel', me.sound); e.currentTarget.setAttribute('aria-pressed', me.sound); me.est(); });
-    chips(root, 'data-res', function (val) { me.res = +val; me.est(); });
-    chips(root, 'data-gq', function (val) { me.gq = val; me.est(); });
-    chips(root, 'data-speed', function (val) { me.speed = +val; me.fmtUi(); me.est(); });
+    chips(root, 'data-res', function (val) { me.res = +val; me.vals(); me.est(); });
+    chips(root, 'data-gq', function (val) { me.gq = val; me.vals(); me.est(); });
+    chips(root, 'data-speed', function (val) { me.setSpeed(+val); });
     act(root, 'loop', function (e) { me.loop = !me.loop; me.est(); e.currentTarget.classList.toggle('sel', me.loop); e.currentTarget.setAttribute('aria-pressed', me.loop); });
-    act(root, 'resetCrop', function () { if (!me.ready) return; me.aspectKey = 'free'; selChip(root, 'data-aspect', 'free'); me.crop.reset(); });
+    act(root, 'resetCrop', function () { me.resetCrop(); });
     act(root, 'play', function () { me.toggle(); });
     act(root, 'setA', function () { if (me.ready) me.trim.setRange(v.currentTime, me.b); });
     act(root, 'setB', function () { if (me.ready) me.trim.setRange(me.a, v.currentTime); });
@@ -326,6 +386,14 @@
     this.lbl(); this.fmtUi();
     this.hist = new History(this);
   }
+  VideoEditor.prototype.resetCrop = function () { if (!this.ready) return; this.aspectKey = 'free'; selChip(this.root, 'data-aspect', 'free'); this.crop.reset(); this.layout(); };
+  VideoEditor.prototype.setSpeed = function (v) { this.speed = v; selChip(this.root, 'data-speed', String(v)); this.fmtUi(); this.est(); };
+  var GQN = { best: 'عالی', balanced: 'متعادل', small: 'کم‌حجم' };
+  VideoEditor.prototype.vals = function () {
+    var r = this.root, me = this, set = function (k, t) { $$(r, '[data-el=' + k + ']').forEach(function (e) { e.textContent = t; }); };
+    set('vFmt', this.fmt === 'webp' ? 'WebP' : FMTN[this.fmt]); set('vRes', this.res ? this.res + 'p' : 'اصلی'); set('vQ', GQN[this.gq]); set('vFps', KE.fa(this.fps));
+    set('vSpd', KE.fa(this.speed).replace('.', '٫') + '×');
+  };
   VideoEditor.prototype.lbl = function () { var r = $(this.root, '[data-k=fxk]'), o = $(this.root, '[data-v=fxk]'); if (r && o) o.textContent = KE.fa(r.value); };
   var FPS = { vid: [15, 24, 30, 60], anim: [10, 12, 15, 20, 25, 30, 50] };
   VideoEditor.prototype.fmtUi = function () {
@@ -341,15 +409,17 @@
     var note = vid && me.sound && Math.abs(me.speed - 1) > 1e-3 ? 'با تغییر سرعت، بی‌صدا' : (me.unsup && me.unsup[f] ? 'این دستگاه ' + KE.FMTN[f] + ' نمی‌سازد' : '');
     $$(r, '[data-el=fmtNote]').forEach(function (e) { e.textContent = note; e.hidden = !note; });
     $$(r, '[data-fmt]').forEach(function (b) { var k = b.getAttribute('data-fmt'); b.classList.toggle('off', !!(me.unsup && me.unsup[k])); });
+    this.vals();
   };
   // live look on the video: a canvas copy of the current frame sits over the player
   VideoEditor.prototype.drawFx = function () {
     var c = this.fxcv, v = this.v; if (!c || !this.ready) return;
     if (!this.fx || !(this.fxk > 0)) { c.hidden = true; return; }
     var fw = this.frame.clientWidth, fh = this.frame.clientHeight; if (!fw || !fh) return;
-    var dpr = Math.min(1.5, window.devicePixelRatio || 1), w = Math.min(v.videoWidth, Math.round(fw * dpr)), h = Math.min(v.videoHeight, Math.round(fh * dpr));
+    var dpr = Math.min(1.5, window.devicePixelRatio || 1), w = Math.max(1, Math.round(fw * dpr)), h = Math.max(1, Math.round(fh * dpr));
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-    var x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(v, 0, 0, w, h);
+    var x = c.getContext('2d', { willReadFrequently: true }), r = this.view;
+    if (r) x.drawImage(v, r.x, r.y, r.w, r.h, 0, 0, w, h); else x.drawImage(v, 0, 0, w, h);
     KE.FX.canvas(c, this.fx, this.fxk); c.hidden = false;
   };
   VideoEditor.prototype.thumbs = function () {
@@ -379,6 +449,7 @@
           $$(me.root, '[data-el=name]').forEach(function (e) { e.textContent = file.name || 'video'; });
           $$(me.root, '[data-el=info]').forEach(function (e) { e.textContent = KE.dims(v.videoWidth, v.videoHeight) + ' | ' + KE.time(me.dur) + ' | ' + KE.size(file.size || 0); });
           $$(me.root, '[data-el=infoS]').forEach(function (e) { e.textContent = KE.time(me.dur) + ' | ' + KE.dims(v.videoWidth, v.videoHeight); });
+          $$(me.root, '[data-el=tDur]').forEach(function (e) { e.innerHTML = KE.time(me.dur); });
           me.ambUrl = KE.ambOf(v, v.videoWidth, v.videoHeight); KE.setAmb(me.ambUrl);
           requestAnimationFrame(function () {
             me.layout(true); me.trim.set(me.dur, me.a, me.b); me.trim.setT(0); me.times(); me.cur();
@@ -398,11 +469,15 @@
   VideoEditor.prototype.close = function () { this.eg = (this.eg || 0) + 1; if (this.ev) { this.ev.removeAttribute('src'); this.ev.load(); } this.v.pause(); this.v.removeAttribute('src'); this.v.load(); this.ready = false; this.ambUrl = null; if (this.fxcv) this.fxcv.hidden = true; this.root.classList.remove('has-file'); if (this.url) URL.revokeObjectURL(this.url); this.url = null; };
   VideoEditor.prototype.layout = function (resetCrop) {
     if (!this.ready || !this.stage.clientWidth) return;
-    var v = this.v, vw = v.videoWidth, vh = v.videoHeight, pad = 8;
-    var bw = this.stage.clientWidth - pad * 2, bh = this.stage.clientHeight - pad * 2, k = Math.min(bw / vw, bh / vh, 3);
-    this.frame.style.width = Math.floor(vw * k) + 'px'; this.frame.style.height = Math.floor(vh * k) + 'px';
+    var v = this.v, vw = v.videoWidth, vh = v.videoHeight, pad = document.body.classList.contains('mob') ? 16 : 10;
     if (resetCrop) { this.crop.setNatural(vw, vh); if (this.aspectKey !== 'free') this.crop.setAspect(aspectOf(this.aspectKey, { w: vw, h: vh }), true); }
     else this.crop.setNatural(vw, vh, true);
+    var cv = cview(this), r = cv ? this.crop.rect() : { x: 0, y: 0, w: vw, h: vh };
+    var bw = this.stage.clientWidth - pad * 2, bh = this.stage.clientHeight - pad * 2, k = Math.min(bw / r.w, bh / r.h, 3);
+    this.frame.style.width = Math.floor(r.w * k) + 'px'; this.frame.style.height = Math.floor(r.h * k) + 'px'; this.view = cv ? r : null;
+    var vs = v.style; // the player keeps its full size; the frame shows only the cut part
+    if (cv) { vs.width = vw * k + 'px'; vs.height = vh * k + 'px'; vs.left = -r.x * k + 'px'; vs.top = -r.y * k + 'px'; vs.right = vs.bottom = 'auto'; }
+    else vs.width = vs.height = vs.left = vs.top = vs.right = vs.bottom = '';
     this.drawFx();
     if (this.trim.el.clientWidth && Math.abs((this.thW || 0) - this.trim.el.clientWidth) > 40) { this.thW = this.trim.el.clientWidth; if (!resetCrop) this.trim.thumbs(this.url, vw, vh); }
     this.est();
@@ -513,10 +588,10 @@
       live.stop();
       KE.learnSpeed(f, ms, p.n, p.w * p.h);
       if (pred != null) KE.learnEta(f, pred - E.audio, ms - (vid && o.sound ? (KE.audioMs || 0) : 0), vid && o.sound ? KE.audioMs : null, res.audioCopied, me.file);
-      me.ui.idle(); me.seekTo(me.a); me.drawFx();
-      me.ui.result({ kind: vid ? 'video' : (f === 'webp' ? 'awebp' : 'gif'), fmt: f, anim: true, blob: blob, url: URL.createObjectURL(blob), w: p.w, h: p.h, inW: me.v.videoWidth, inH: me.v.videoHeight,
+      me.seekTo(me.a); me.drawFx();
+      me.ui.done(function () { me.ui.result({ kind: vid ? 'video' : (f === 'webp' ? 'awebp' : 'gif'), fmt: f, anim: true, blob: blob, url: URL.createObjectURL(blob), w: p.w, h: p.h, inW: me.v.videoWidth, inH: me.v.videoHeight,
         orig: me.file.size || 0, origType: me.file.type, origName: me.file.name, frames: p.n, fps: me.fps, dur: p.dur, ms: ms, audio: vid ? !!res.audio : false, soundAsked: vid && me.sound,
-        name: KE.baseName(me.file.name) + '-kedit.' + (f === 'webp' ? 'webp' : f) });
+        name: KE.baseName(me.file.name) + '-kedit.' + (f === 'webp' ? 'webp' : f) }); });
     }, function (e) {
       live.stop();
       me.ui.idle(); me.seekTo(me.a); me.drawFx();
@@ -552,7 +627,6 @@
     $$(r, '[data-act=undo]').forEach(function (b) { b.disabled = !c.undo; }); $$(r, '[data-act=redo]').forEach(function (b) { b.disabled = !c.redo; });
     r.dispatchEvent(new CustomEvent('kehist', { detail: c }));
   };
-  KE.History = History;
   function setVal(root, k, v, lbl) { var el = $(root, '[data-k=' + k + ']'); if (el) el.value = v; if (lbl) lbl(k); }
   ImageEditor.prototype.has = function () { return !!this.st; };
   ImageEditor.prototype.snap = function () { var st = this.st; return { cr: Object.assign({}, this.crop.r), asp: this.aspectKey, rot: st.rot, fh: st.fh, fv: st.fv, bright: st.bright, contrast: st.contrast, sat: st.sat, fx: this.fx, fxk: this.fxk, up: this.up, fmt: this.fmt, res: this.res, qm: this.qm, q: this.q }; };
@@ -584,5 +658,5 @@
     $$(r, '[data-act=loop]').forEach(function (b) { b.classList.toggle('sel', s.loop); b.setAttribute('aria-pressed', s.loop); });
     me.fmtUi(); me.drawFx(); me.est();
   };
-  KE.ImageEditor = ImageEditor; KE.VideoEditor = VideoEditor; KE.selChip = selChip;
+  KE.ImageEditor = ImageEditor; KE.VideoEditor = VideoEditor;
 })();

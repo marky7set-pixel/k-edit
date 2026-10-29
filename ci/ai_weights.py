@@ -1,9 +1,12 @@
-"""Download the official Real-ESRGAN general x4v3 weights (BSD-3-Clause) and turn them into ui/ai/x4v3.bin (float16) + x4v3.json.
+"""Download the official Real-ESRGAN general x4v3 weights and its "weak denoise" twin (BSD-3-Clause) and turn them into
+ui/ai/x4v3.bin + ui/ai/wdn.bin (float16) + x4v3.json. The app mixes the two by strength, like Real-ESRGAN's -dn option.
 Standard library only. Network: GitHub release of xinntao/Real-ESRGAN."""
 import hashlib, io, json, os, pickle, struct, sys, urllib.request, zipfile
 from array import array
 
-URL = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth'
+REL = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/'
+URL = REL + 'realesr-general-x4v3.pth'
+WDN = REL + 'realesr-general-wdn-x4v3.pth'
 SHA = '8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292'
 OUT = os.path.join(os.path.dirname(__file__), '..', 'ui', 'ai')
 
@@ -63,19 +66,31 @@ def convert(sd):
             blob += struct.pack('<%de' % len(arr), *arr)
     return layers, bytes(blob)
 
+def fetch(url):
+    return urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'k-edit-ci'}), timeout=180).read()
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     src = sys.argv[1] if len(sys.argv) > 1 else None
+    wsrc = sys.argv[2] if len(sys.argv) > 2 else None
     if src and os.path.exists(src): raw = open(src, 'rb').read()
     else:
-        raw = urllib.request.urlopen(urllib.request.Request(URL, headers={'User-Agent': 'k-edit-ci'}), timeout=180).read()
+        raw = fetch(URL)
         h = hashlib.sha256(raw).hexdigest()
         if h != SHA: raise SystemExit('sha256 mismatch ' + h)
-    sd = load_pth(raw)
-    layers, blob = convert(sd)
+    layers, blob = convert(load_pth(raw))
     assert layers[0]['cin'] == 3 and layers[-1]['cout'] == 48 and len(layers) == 34, layers
     open(os.path.join(OUT, 'x4v3.bin'), 'wb').write(blob)
-    json.dump({'name': 'realesr-general-x4v3', 'license': 'BSD-3-Clause (c) 2021 Xintao Wang', 'scale': 4, 'layers': layers}, open(os.path.join(OUT, 'x4v3.json'), 'w'))
+    meta = {'name': 'realesr-general-x4v3', 'license': 'BSD-3-Clause (c) 2021 Xintao Wang', 'scale': 4, 'layers': layers}
     print('ai weights ok:', len(layers), 'layers,', len(blob), 'bytes')
+    try:  # the weak-denoise twin keeps fine texture; without it the app still works with x4v3 alone
+        wraw = open(wsrc, 'rb').read() if wsrc and os.path.exists(wsrc) else fetch(WDN)
+        wl, wb = convert(load_pth(wraw))
+        if wl != layers or len(wb) != len(blob): raise ValueError('layout differs')
+        open(os.path.join(OUT, 'wdn.bin'), 'wb').write(wb); meta['wdn'] = True
+        print('wdn weights ok:', len(wb), 'bytes, sha256', hashlib.sha256(wraw).hexdigest())
+    except Exception as e:
+        print('wdn weights skipped:', e)
+    json.dump(meta, open(os.path.join(OUT, 'x4v3.json'), 'w'))
 
 if __name__ == '__main__': main()

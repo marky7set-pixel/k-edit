@@ -26,7 +26,7 @@
     return true;
   }
   window.kBack = back;
-  function resetSteps(root) { root.querySelectorAll('.st').forEach(function (t) { t.classList.remove('done'); }); root.classList.remove('folded'); if (root.goStep) root.goStep(0); }
+  function resetSteps(root) { root.querySelectorAll('.tl2').forEach(function (t) { t.classList.remove('done'); }); if (root.openTool) root.openTool(root.querySelector('.tl2').getAttribute('data-tab')); }
   document.querySelectorAll('[data-back]').forEach(function (b) { b.addEventListener('click', back); });
   function openIn(kind, f) {
     if (!f) return;
@@ -39,42 +39,37 @@
   document.querySelectorAll('[data-repick]').forEach(function (b) { b.addEventListener('click', function () { (b.closest('#edImg') ? $('fImg') : $('fVid')).click(); }); });
   $('fImg').addEventListener('change', function (e) { openIn('img', e.target.files[0]); e.target.value = ''; });
   $('fVid').addEventListener('change', function (e) { openIn('vid', e.target.files[0]); e.target.value = ''; });
-  // step by step: a strip of steps on top, one fixed panel below that can fold away
+  // tools at the bottom: each opens one small drawer above the bar; tap it again or ✓ to close
+  var SPEEDS = [0.5, 1, 1.5, 2];
   document.querySelectorAll('.ed').forEach(function (root) {
-    var E = root.id === 'edImg' ? IE : VE, tabs = [].slice.call(root.querySelectorAll('.st')), nm = root.querySelector('.ch-n'), kk = root.querySelector('.ch-k'), mn = root.querySelector('.mini-n');
-    function cur() { for (var i = 0; i < tabs.length; i++) if (tabs[i].classList.contains('sel')) return i; return 0; }
-    function go(i) {
-      i = Math.max(0, Math.min(tabs.length - 1, i)); var t = tabs[i], k = t.getAttribute('data-tab');
-      tabs.forEach(function (x) { x.classList.toggle('sel', x === t); x.setAttribute('aria-pressed', x === t); });
-      root.querySelectorAll('.pane').forEach(function (p) { p.classList.toggle('on', p.getAttribute('data-pane') === k); });
-      root.setAttribute('data-tool', k); root.classList.toggle('last', i === tabs.length - 1);
-      nm.textContent = mn.textContent = t.getAttribute('data-title'); kk.textContent = KE.fa(i + 1) + ' از ' + KE.fa(tabs.length);
-      if (E === VE && k !== 'cut' && !VE.v.paused) VE.v.pause();
-      root.querySelector('.panel').scrollTop = 0; requestAnimationFrame(function () { E.layout(); });
+    var E = root.id === 'edImg' ? IE : VE, tabs = [].slice.call(root.querySelectorAll('.tl2')), dws = root.querySelector('.dws');
+    function measure() {
+      var d = root.querySelector('.dw.on'), h = d ? d.offsetHeight + 8 : 0;
+      if (root.style.getPropertyValue('--dwh') !== h + 'px') root.style.setProperty('--dwh', h + 'px'); // the picture follows through its size observer
     }
-    root.goStep = go;
-    tabs.forEach(function (t, i) { t.addEventListener('click', function () { fold(false); go(i); }); });
-    root.querySelector('[data-act=next]').addEventListener('click', function () { var i = cur(); tabs[i].classList.add('done'); go(i + 1); });
-    root.querySelector('[data-act=prevStep]').addEventListener('click', function () { go(cur() - 1); });
-    root.querySelector('[data-act=stepReset]').addEventListener('click', function () {
-      var k = tabs[cur()].getAttribute('data-tab'), q = function (s) { var b = root.querySelector(s); if (b) b.click(); };
-      tabs[cur()].classList.remove('done');
-      if (k === 'crop') { if (E === IE) IE.resetGeo(); else q('[data-act=resetCrop]'); }
+    function sub(k) { root.querySelectorAll('.dw.on .sub').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-s') === k); }); measure(); }
+    function open(k) {
+      root.setAttribute('data-tool', k || 'none');
+      tabs.forEach(function (t) { var on = t.getAttribute('data-tab') === k; t.classList.toggle('sel', on); t.setAttribute('aria-pressed', on); });
+      root.querySelectorAll('.dw').forEach(function (d) { d.classList.toggle('on', d.getAttribute('data-pane') === k); });
+      sub(''); measure(); requestAnimationFrame(function () { E.layout(); });
+    }
+    function cur() { var t = root.getAttribute('data-tool'); return t === 'none' ? '' : t; }
+    function closeDone() { var k = cur(); tabs.forEach(function (t) { if (t.getAttribute('data-tab') === k) t.classList.add('done'); }); open(''); }
+    root.openTool = open;
+    tabs.forEach(function (t) { t.addEventListener('click', function () { if (cur() === t.getAttribute('data-tab')) closeDone(); else open(t.getAttribute('data-tab')); }); });
+    root.querySelectorAll('[data-act=close]').forEach(function (b) { b.addEventListener('click', closeDone); });
+    root.querySelectorAll('[data-sub]').forEach(function (b) { b.addEventListener('click', function () { sub(b.getAttribute('data-sub')); }); });
+    root.querySelectorAll('[data-act=stepReset]').forEach(function (b) { b.addEventListener('click', function () {
+      var k = cur(), q = function (s) { var x = root.querySelector(s); if (x) x.click(); };
+      if (k === 'crop') { if (E === IE) IE.resetGeo(); else VE.resetCrop(); }
       else if (k === 'adj') q('[data-act=resetAdj]');
       else if (k === 'fx') { q('.fxi[data-fx="0"]'); var r = root.querySelector('input[data-k=fxk]'); if (r) { r.value = 50; r.dispatchEvent(new Event('input', { bubbles: true })); } }
-      else if (k === 'cut') { q('[data-act=resetTrim]'); q('[data-speed="1"]'); }
-    });
-    // fold: tap the handle, or swipe the panel down; swipe the bar up (or tap) to bring it back
-    function fold(on) { if (root.classList.contains('folded') === !!on) return; root.classList.toggle('folded', !!on); requestAnimationFrame(function () { E.layout(); }); }
-    root.querySelector('[data-act=fold]').addEventListener('click', function () { fold(true); });
-    root.querySelector('[data-act=unfold]').addEventListener('click', function () { fold(false); });
-    function swipe(el, dir) {
-      var y0 = null;
-      el.addEventListener('touchstart', function (e) { if (e.target.closest('input,.trim,.row.scroll,.fxrow')) { y0 = null; return; } y0 = e.touches[0].clientY; }, { passive: true });
-      el.addEventListener('touchend', function (e) { if (y0 == null) return; var dy = e.changedTouches[0].clientY - y0; y0 = null; if (dir > 0 ? dy > 60 : dy < -40) fold(dir > 0); }, { passive: true });
-    }
-    swipe(root.querySelector('.ctl'), 1); swipe(root.querySelector('.mini'), -1);
-    root.foldPanel = fold; go(0);
+    }); });
+    var sp = root.querySelector('[data-act=speedNext]');
+    if (sp) sp.addEventListener('click', function () { VE.setSpeed(SPEEDS[(SPEEDS.indexOf(VE.speed) + 1) % SPEEDS.length]); });
+    if (window.ResizeObserver) new ResizeObserver(measure).observe(dws);
+    open(tabs[0].getAttribute('data-tab'));
   });
   if (window.ResizeObserver) {
     new ResizeObserver(function () { IE.layout(); }).observe(IE.stage);
@@ -86,13 +81,13 @@
     if (cur && cur.url) URL.revokeObjectURL(cur.url);
     cur = r; KE.UI.fillResult(r); $('res').classList.toggle('media', r.kind !== 'image');
     $('resTitle').textContent = { image: 'عکس آماده است', video: 'ویدیو آماده است', gif: 'GIF آماده است', awebp: 'WebP متحرک آماده است' }[r.kind] || 'آماده است';
-    $('resStat').className = 'status'; $('resStat').textContent = 'ذخیره نشده';
+    $('resStat').className = 'status'; $('resStat').textContent = 'ذخیره نشده'; $('resSave').classList.remove('saved'); $('resSaveT').textContent = 'ذخیره در گالری';
     KE.UI.info(false); show('res', true); requestAnimationFrame(function () { KE.UI.cmp && KE.UI.cmp.fit(); });
   }
   $('resSave').addEventListener('click', function () {
     if (!cur) return;
     KE.save(cur.blob, cur.name, 'save').then(function (r) {
-      if (r.ok) { $('resStat').className = 'status ok'; $('resStat').textContent = 'ذخیره شد'; ui.toast('ذخیره شد: ' + (r.where || 'Pictures/K-Edit')); }
+      if (r.ok) { $('resStat').className = 'status ok'; $('resStat').textContent = 'ذخیره شد'; $('resSave').classList.add('saved'); $('resSaveT').textContent = 'ذخیره شد'; ui.toast('در گالری: ' + (r.where || 'Pictures/K-Edit')); }
       else if (r.perm) ui.toast('برای ذخیره، اجازهٔ دسترسی لازم است', 'err');
       else if (!r.cancelled) ui.toast('ذخیره نشد؛ دوباره امتحان کنید', 'err');
     });

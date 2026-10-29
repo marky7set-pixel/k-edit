@@ -11,3 +11,7 @@ cat > /tmp/notes.md <<NOTES
 - K-Edit-Portable-v$VER.exe: ویندوز بدون نصب
 NOTES
 gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --title "K-Edit $VER" --notes-file /tmp/notes.md --latest
+# only the newest version stays: older releases and their tags are removed (build logs stay)
+gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' | while read -r t; do
+  case "$t" in v*) [ "$t" != "$TAG" ] && gh release delete "$t" -y --cleanup-tag --repo "$GITHUB_REPOSITORY" && echo "removed $t" ;; esac
+done

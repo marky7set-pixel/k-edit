@@ -1,4 +1,4 @@
-/* K-Edit 1.5 base: one clean style for both apps. Picture colours blurred behind solid, readable glass. */
+/* K-Edit base: one clean style for both apps. Picture colours blurred behind solid, readable glass. */
 @font-face { font-family: 'Vazirmatn'; src: url('../fonts/vazirmatn.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
 :root {
   --cream: #f6efe2; --ink: #14110b; --text: #ffffff; --soft: rgba(255, 255, 255, .78); --faint: rgba(255, 255, 255, .58);
@@ -84,6 +84,12 @@ button:disabled { cursor: not-allowed; }
 .dim { opacity: .38; pointer-events: none; }
 .qm-manual-only { display: none !important; } .qm-manual .qm-manual-only { display: grid !important; }
 .gd { color: var(--gold) !important; } .down { color: var(--ok) !important; } .up { color: var(--bad) !important; } .wait { animation: pulse 1.2s ease-in-out infinite; }
+/* the switch that keeps the resolution (a real on / off control, never a status) */
+.sw { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 44px; padding: 0 14px; border-radius: 16px; border: 1px solid var(--fill-line); background: var(--fill); color: var(--text); font-size: 13.5px; font-weight: 800; white-space: nowrap; }
+.sw i { position: relative; flex: none; width: 42px; height: 24px; border-radius: 999px; background: rgba(255, 255, 255, .22); transition: background .2s; }
+.sw i::after { content: ''; position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .4); transition: transform .2s var(--ease); }
+.sw.on { border-color: rgba(155, 227, 182, .5); background: rgba(155, 227, 182, .12); } .sw.on i { background: var(--ok); } .sw.on i::after { transform: translateX(-18px); }
+.png-only { display: none; } .is-png .png-only { display: flex; } .is-png .no-png { display: none !important; }
 /* slider */
 .sl { display: grid; grid-template-columns: 64px 1fr 34px; align-items: center; gap: 10px; height: 34px; }
 .sl label { font-size: 13px; color: var(--soft); white-space: nowrap; }
@@ -111,8 +117,10 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: 0; bord
 .frame canvas, .frame video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; border-radius: 14px; }
 .frame video { object-fit: fill; background: #000; }
 .fxcv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; border-radius: 14px; }
-.crop { position: absolute; inset: 0; touch-action: none; overflow: hidden; }
-.cb { position: absolute; border: 2px solid var(--cream); box-shadow: 0 0 0 9999px rgba(5, 7, 13, .55); cursor: move; }
+.crop { position: absolute; inset: 0; touch-action: none; }
+/* the dark shade is clipped to the picture; the frame and its handles are not, so edge handles can always be grabbed */
+.shd { position: absolute; inset: 0; overflow: hidden; border-radius: 14px; pointer-events: none; } .shd i { position: absolute; box-shadow: 0 0 0 9999px rgba(5, 7, 13, .55); }
+.cb { position: absolute; border: 2px solid var(--cream); cursor: move; }
 .cb i { position: absolute; background: rgba(246, 239, 226, .35); opacity: 0; transition: opacity .2s; pointer-events: none; }
 .cb.on i { opacity: 1; }
 .cb .g1, .cb .g2 { top: 0; bottom: 0; width: 1px; } .cb .g1 { left: 33.33%; } .cb .g2 { left: 66.66%; }
@@ -132,6 +140,8 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: 0; bord
 .crop.locked .hd-n, .crop.locked .hd-s, .crop.locked .hd-e, .crop.locked .hd-w { display: none; }
 /* outside the crop tool the frame is only shown, not edited */
 .ed:not([data-tool=edit]):not([data-tool=crop]) .cb { border-color: transparent; cursor: default; }
+.ed.cview .crop { display: none; } .ed.cview .frame { overflow: hidden; }
+.stage.zoomed { overflow: auto; place-items: start; } .stage.zoomed .frame { margin: auto; } .stage.panning { cursor: grabbing; } .stage.zoomed .frame canvas { image-rendering: auto; }
 .ed:not([data-tool=edit]):not([data-tool=crop]) .crop { pointer-events: none; }
 .ed:not([data-tool=edit]):not([data-tool=crop]) .hd, .ed:not([data-tool=edit]):not([data-tool=crop]) .cb-size { display: none; }
 
@@ -159,20 +169,35 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border: 0; bord
 .kb.on { display: grid; animation: fade .2s ease; }
 .kb-in { position: relative; z-index: 1; display: grid; justify-items: center; gap: 6px; width: min(400px, 88vw); padding: 30px 26px 26px; border-radius: 34px; text-align: center; }
 .kb-t { font-weight: 800; font-size: 19px; white-space: nowrap; } .kb-t small { display: block; margin-top: 2px; font-size: 13px; font-weight: 600; color: var(--faint); }
-.kb svg { width: 250px; height: auto; margin: 6px 0 -6px; overflow: visible; }
 .kb-p { font-size: 46px; font-weight: 900; line-height: 1.1; background: var(--goldgrad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .kb-p.spin { opacity: 0; }
+/* the bar moves on the graphics thread (transform), so it stays smooth while the AI keeps the processor busy */
 .kb-bar { width: 240px; height: 6px; margin: 4px 0 6px; border-radius: 6px; background: rgba(255, 255, 255, .16); overflow: hidden; }
-.kb-bar i { display: block; height: 100%; width: 0; border-radius: 6px; background: linear-gradient(270deg, #c99e4c, #f1cb83, #fff3d1); box-shadow: 0 0 12px rgba(241, 203, 131, .5); transition: width .25s; }
-.kb-bar.spin i { width: 35% !important; animation: kbspin 1.2s ease-in-out infinite; }
+.kb-bar i { display: block; height: 100%; width: 100%; border-radius: 6px; background: linear-gradient(270deg, #c99e4c, #f1cb83, #fff3d1); box-shadow: 0 0 12px rgba(241, 203, 131, .5); transform-origin: 100% 50%; transform: scaleX(0); transition: transform .45s linear; will-change: transform; }
+.kb-bar.spin i { width: 35%; transition: none; animation: kbspin 1.2s ease-in-out infinite; }
 @keyframes kbspin { 0% { transform: translateX(120%); } 100% { transform: translateX(-290%); } }
 .kb-s { display: flex; align-items: center; gap: 6px; font-size: 14.5px; color: var(--soft); white-space: nowrap; }
-.kb .pill { margin-top: 14px; height: 46px; padding: 0 26px; }
-#pan { transform-box: view-box; transform-origin: 46px 104px; animation: pan 2s cubic-bezier(.45, .05, .35, 1) infinite; }
-#cake { transform-box: fill-box; transform-origin: 50% 50%; animation: cake 2s cubic-bezier(.45, .05, .35, 1) infinite; }
-#shadow { transform-box: fill-box; transform-origin: 50% 50%; animation: shadow 2s ease-in-out infinite; }
-.sp { transform-box: fill-box; transform-origin: 50% 50%; opacity: 0; animation: sp 2s ease-out infinite; } .sp.b { animation-name: sp2; } .sp.c { animation-name: sp3; } .sp.d { animation-name: sp4; }
-@media (max-height: 600px) { .kb svg { width: 200px; } .kb-p { font-size: 38px; } }
+.kb .pill { margin-top: 14px; height: 44px; padding: 0 22px; gap: 6px; flex-wrap: nowrap; } .kb .pill .ic { width: 16px; height: 16px; }
+/* the approved pan: plain layers moved only with transform / opacity (no repaint per frame) */
+.pa { width: 250px; height: 170px; margin: 4px 0 -8px; }
+.pa-in { position: relative; width: 220px; height: 150px; transform: scale(1.136); transform-origin: 0 0; }
+.pa-in > i, .pa-pan, .pa-cake, .pa-ok { position: absolute; display: block; will-change: transform, opacity; }
+.pa-sh { left: 99px; top: 130px; width: 80px; height: 8px; border-radius: 50%; background: #000; animation: shadow 2s ease-in-out infinite; }
+.pa-sp { border-radius: 50%; opacity: 0; animation: sp 2s ease-out infinite; }
+.pa-sp.a { left: 128.6px; top: 94.6px; width: 6.8px; height: 6.8px; background: #f1cb83; }
+.pa-sp.b { left: 143.4px; top: 95.4px; width: 5.2px; height: 5.2px; background: #fff3d1; animation-name: sp2; }
+.pa-sp.c { left: 121.8px; top: 97.8px; width: 4.4px; height: 4.4px; background: #d4b06a; animation-name: sp3; }
+.pa-sp.d { left: 150px; top: 97px; width: 4px; height: 4px; background: #f1cb83; animation-name: sp4; }
+.pa-pan { inset: 0; transform-origin: 46px 104px; animation: pan 2s cubic-bezier(.45, .05, .35, 1) infinite; }
+.pa-pan svg { position: absolute; inset: 0; width: 220px; height: 150px; overflow: visible; }
+.pa-cake { left: 116px; top: 79px; width: 46px; height: 46px; border-radius: 50%; background: linear-gradient(#ffe8b5, #d9ad5c); transform-origin: 50% 50%; animation: cake 2s cubic-bezier(.45, .05, .35, 1) infinite; }
+.pa-ok { left: 80px; top: 45px; width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; font-weight: 900; color: #1d1405; background: var(--goldgrad); box-shadow: 0 10px 30px rgba(241, 203, 131, .45); opacity: 0; transform: scale(.4); }
+/* finish: bar full, the pan steps aside for a check, then the screen fades */
+.kb.fin .pa-pan, .kb.fin .pa-in > i { opacity: 0; transition: opacity .2s; animation-play-state: paused; }
+.kb.fin .pa-ok { opacity: 1; transform: none; transition: transform .32s cubic-bezier(.3, 1.6, .5, 1), opacity .2s; }
+.kb.fin .kb-bar i { transition-duration: .2s; }
+.kb.out { opacity: 0; transition: opacity .35s ease; }
+@media (max-height: 600px) { .pa { transform: scale(.82); margin: -14px 0 -28px; } .kb-p { font-size: 38px; } }
 @keyframes pan{0%{transform:rotate(0)}12%{transform:translateY(3px) rotate(4deg)}22%{transform:rotate(-13deg)}36%{transform:rotate(-5deg)}58%{transform:rotate(0)}78%{transform:rotate(0)}86%{transform:translateY(4px) rotate(4deg)}100%{transform:rotate(0)}}
 @keyframes cake{0%{transform:translate(0,0) scale(1,.32)}12%{transform:translate(0,3px) scale(1.08,.27)}22%{transform:translate(-6px,-22px) rotate(-25deg) scale(.92,.55)}45%{transform:translate(-14px,-80px) rotate(-165deg) scale(1,1)}55%{transform:translate(-14px,-82px) rotate(-205deg) scale(1,1)}76%{transform:translate(-2px,-8px) rotate(-345deg) scale(.95,.62)}86%{transform:translate(0,3px) rotate(-360deg) scale(1.14,.25)}100%{transform:translate(0,0) rotate(-360deg) scale(1,.32)}}
 @keyframes shadow{0%,12%,86%,100%{transform:scale(1);opacity:.32}45%,55%{transform:scale(.55);opacity:.12}}

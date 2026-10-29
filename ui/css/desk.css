@@ -1,4 +1,4 @@
-/* desktop 1.5: picture in the middle, one panel on the right, three tools in the dock */
+/* desktop: picture in the middle, one panel on the right, three tools in the dock */
 body.desk { min-width: 1000px; }
 .top { position: fixed; top: 0; left: 0; right: 0; height: 84px; z-index: 6; pointer-events: none; }
 .top > * { pointer-events: auto; }
@@ -18,9 +18,18 @@ body:not(.hasf) #btnOpen, body:not(.hasf) #btnUndo, body:not(.hasf) #btnRedo { d
 .board { position: fixed; top: 92px; bottom: 150px; left: 60px; right: 410px; z-index: 1; }
 #edVid .board { bottom: 340px; }
 .board .stage { position: absolute; inset: 0; }
-.cmp { position: absolute; left: 10px; bottom: 10px; z-index: 3; background: var(--glass); }
+/* under the picture: hold to see the original, and zoom */
+#edImg .board .stage { bottom: 52px; }
+.zbar { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 3; display: flex; align-items: center; gap: 6px; padding: 5px; border-radius: 999px; direction: ltr; }
+.zbar .cmp { background: none; } .zbar .cmp .ic { width: 18px; height: 18px; } .zbar .sepv { margin: 0 2px; }
+.zbar .ibtn { width: 34px; height: 34px; font-size: 18px; font-weight: 800; line-height: 1; } .zbar b { min-width: 48px; text-align: center; font-size: 12.5px; direction: ltr; font-variant-numeric: tabular-nums; }
+.zbar .pill { height: 34px; padding: 0 12px; font-size: 12.5px; }
+.stage { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .3) transparent; }
+/* AI: five sizes, strength, and the switch that keeps the resolution */
+.ups.g5 { gap: 6px; } .ups.g5 .card { height: 58px; padding: 0 2px; } .ups.g5 .card b { font-size: 14.5px; } .ups.g5 .card small { font-size: 9.5px; }
+.fmts.c4 .fmt small { font-size: 10.5px; }
 .ed:not(.has-file) .board { inset: 0; }
-.ed:not(.has-file) .frame, .ed:not(.has-file) .cmp, .ed:not(.has-file) .insp, .ed:not(.has-file) .dock, .ed:not(.has-file) .tl { display: none !important; }
+.ed:not(.has-file) .frame, .ed:not(.has-file) .zbar, .ed:not(.has-file) .insp, .ed:not(.has-file) .dock, .ed:not(.has-file) .tl { display: none !important; }
 .ed.has-file .drop { display: none; }
 .foot { position: fixed; bottom: 30px; left: 0; right: 0; margin: 0; z-index: 2; text-align: center; font-size: 13px; color: var(--faint); white-space: nowrap; pointer-events: none; }
 body.hasf .foot { display: none; }

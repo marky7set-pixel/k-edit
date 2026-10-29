@@ -1,4 +1,4 @@
-Real-ESRGAN general x4v3 weights (BSD-3-Clause, (c) 2021 Xintao Wang, https://github.com/xinntao/Real-ESRGAN).
+Real-ESRGAN general x4v3 + wdn-x4v3 weights (BSD-3-Clause, (c) 2021 Xintao Wang, https://github.com/xinntao/Real-ESRGAN).
 The model files are downloaded and converted while building (ci/ai_weights.py).
 
 BSD 3-Clause License

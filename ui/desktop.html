@@ -27,9 +27,10 @@
   <section class="ed" id="edImg" data-kind="img" data-tool="edit">
     <div class="board"><div class="stage" data-el="stage">
       <div class="frame" data-el="frame"><canvas data-el="canvas"></canvas><div class="crop" data-el="crop"></div></div>
-      <button class="ibtn cmp" data-act="compare" data-ic="eye" title="نگه دارید: عکس اصلی" aria-label="نگه دارید: عکس اصلی"></button>
       <div class="drop glass"><div class="drop-ic" data-ic="img"></div><b>عکس را اینجا رها کنید</b><span>یا <kbd>Ctrl</kbd>+<kbd>O</kbd> | JPG، PNG، WebP</span><button class="go" data-pick><span data-ic="open"></span>انتخاب عکس</button></div>
-    </div></div>
+    </div>
+      <div class="zbar glass"><button class="ibtn cmp" data-act="compare" data-ic="eye" title="نگه دارید: عکس اصلی" aria-label="نگه دارید: عکس اصلی"></button><i class="sepv"></i><button class="ibtn" data-act="zout" title="کوچک‌نمایی" aria-label="کوچک‌نمایی">−</button><b data-el="zpct">۱۰۰٪</b><button class="ibtn" data-act="zin" title="بزرگ‌نمایی (چرخ موس)" aria-label="بزرگ‌نمایی">+</button><button class="pill" data-act="zfit">کل عکس</button></div>
+    </div>
     <aside class="insp glass" data-mode="edit">
       <span class="sr"><b data-el="name"></b><small data-el="info"></small></span>
       <div class="live">
@@ -44,8 +45,11 @@
         <div class="sl"><label>روشنایی</label><input type="range" min="50" max="150" value="100" data-k="bright"><output data-v="bright">۰</output></div>
         <div class="sl"><label>کنتراست</label><input type="range" min="50" max="150" value="100" data-k="contrast"><output data-v="contrast">۰</output></div>
         <div class="sl"><label>اشباع</label><input type="range" min="0" max="200" value="100" data-k="sat"><output data-v="sat">۰</output></div>
-        <div class="sh"><b><span data-ic="up"></span>ارتقا با هوش مصنوعی</b></div>
-        <div class="g4 ups"><button class="card sel" data-up="0"><b>خاموش</b></button><button class="card" data-up="2"><b>⁦2×⁩</b><small data-upd="2"></small></button><button class="card" data-up="3"><b>⁦3×⁩</b><small data-upd="3"></small></button><button class="card" data-up="4"><b>⁦4×⁩</b><small data-upd="4"></small></button></div>
+        <div class="sh"><b><span data-ic="up"></span>هوش مصنوعی</b><small>همیشه در دسترس</small></div>
+        <div class="g5 ups"><button class="card sel" data-up="0"><b>خاموش</b></button><button class="card" data-up="1"><b>بهبود</b><small>همان اندازه</small></button><button class="card" data-up="2"><b>⁦2×⁩</b><small data-upd="2"></small></button><button class="card" data-up="3"><b>⁦3×⁩</b><small data-upd="3"></small></button><button class="card" data-up="4"><b>⁦4×⁩</b><small data-upd="4"></small></button></div>
+        <div class="lbl">شدت</div>
+        <div class="segc"><button class="chip" data-ais="soft">طبیعی</button><button class="chip sel" data-ais="mid">متعادل</button><button class="chip" data-ais="strong">قوی</button></div>
+        <button class="sw" data-act="keep" role="switch" aria-checked="false"><span>وضوح هیچ‌وقت کم نشود</span><i></i></button>
         <p class="note"><span class="dot"></span><span data-el="upNote">هوش مصنوعی جزئیات تازه می‌سازد</span></p>
       </div>
       <div class="pnl" data-grp="fx">
@@ -55,11 +59,11 @@
       </div>
       <div class="pnl" data-grp="out">
         <div class="sh"><b><span data-ic="out"></span>خروجی</b><span class="legend"><span data-ic="globe"></span>مناسب سایت</span></div>
-        <div class="fmts c3"><button class="fmt" data-ifmt="avif"><span class="site" data-ic="globe"></span><b>AVIF</b><small>کم‌حجم‌ترین</small></button><button class="fmt sel" data-ifmt="webp"><span class="site" data-ic="globe"></span><b>WebP</b><small class="rec">★ پیشنهاد</small></button><button class="fmt" data-ifmt="jpg"><b>JPG</b><small>همه‌جا باز می‌شود</small></button></div>
+        <div class="fmts c4"><button class="fmt" data-ifmt="avif"><span class="site" data-ic="globe"></span><b>AVIF</b><small>کم‌حجم‌ترین</small></button><button class="fmt sel" data-ifmt="webp"><span class="site" data-ic="globe"></span><b>WebP</b><small class="rec">★ پیشنهاد</small></button><button class="fmt" data-ifmt="jpg"><b>JPG</b><small>همه‌جا</small></button><button class="fmt" data-ifmt="png"><b>PNG</b><small>بی‌افت</small></button></div>
         <p class="note warn" data-el="fmtNote" hidden></p>
-        <div class="lbl">کیفیت</div>
-        <div class="segc"><button class="chip sel" data-qm="smart">هوشمند</button><button class="chip" data-qm="lossless">بی‌افت</button><button class="chip" data-qm="manual">دستی</button></div>
-        <div class="sl qm-manual-only"><label>کیفیت</label><input type="range" min="40" max="99" value="85" data-k="q"><output data-v="q">۸۵</output></div>
+        <div class="lbl no-png">کیفیت</div>
+        <div class="segc no-png"><button class="chip sel" data-qm="smart">هوشمند</button><button class="chip" data-qm="lossless">بی‌افت</button><button class="chip" data-qm="manual">دستی</button></div>
+        <div class="sl qm-manual-only no-png"><label>کیفیت</label><input type="range" min="40" max="99" value="85" data-k="q"><output data-v="q">۸۵</output></div>
         <div class="resgrp" data-el="resSec"><div class="lbl">وضوح <small data-el="resNote"></small></div>
           <div class="g6"><button class="chip sel" data-res="0">اصلی</button><button class="chip" data-res="480">480p</button><button class="chip" data-res="720">720p</button><button class="chip" data-res="1080">1080p</button><button class="chip" data-res="1440">2K</button><button class="chip" data-res="2160">4K</button></div></div>
       </div>
@@ -131,17 +135,11 @@
   <div class="dock glass dbar"><button class="tool" id="resBack"><span data-ic="back"></span><em>بازگشت</em></button><button class="tool" id="resInfo"><span data-ic="info"></span><em>جزئیات</em></button><button class="tool" id="resReveal" hidden><span data-ic="folder"></span><em>نمایش در پوشه</em></button><button class="tool gold" id="resSave"><span data-ic="save"></span><em>ذخیره</em></button></div>
 </div>
 
-<div class="busy kb" id="busy"><div class="amb"></div><div class="kb-in glass"><div class="kb-t"><span id="busyT">لطفاً صبر کنید</span><small id="busyM" hidden></small></div><svg viewBox="0 0 220 150" aria-hidden="true">
-    <defs><linearGradient id="gg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3d1"/><stop offset=".5" stop-color="#f1cb83"/><stop offset="1" stop-color="#c99e4c"/></linearGradient>
-      <linearGradient id="gc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe8b5"/><stop offset="1" stop-color="#d9ad5c"/></linearGradient></defs>
-    <ellipse id="shadow" cx="139" cy="134" rx="40" ry="4" fill="#000"/>
-    <circle class="sp a" cx="132" cy="98" r="3.4" fill="#f1cb83"/><circle class="sp b" cx="146" cy="98" r="2.6" fill="#fff3d1"/><circle class="sp c" cx="124" cy="100" r="2.2" fill="#d4b06a"/><circle class="sp d" cx="152" cy="99" r="2" fill="#f1cb83"/>
-    <g id="pan">
-      <circle id="cake" cx="139" cy="102" r="23" fill="url(#gc)"/>
-      <path d="M94 106 H184 Q182 122 166 123 H112 Q96 122 94 106 Z" fill="url(#gg)"/>
-      <path d="M96 108 Q72 100 46 104" fill="none" stroke="url(#gg)" stroke-width="5.5" stroke-linecap="round"/>
-    </g>
-  </svg><div class="kb-p goldtxt" id="ringP">۰٪</div><div class="kb-bar" id="ring"><i></i></div><div class="kb-s" id="busyS" hidden><span class="dot"></span><span id="busySt"></span></div><button class="pill" id="busyX" hidden><span data-ic="close"></span>لغو</button></div></div>
+<div class="busy kb" id="busy"><div class="amb"></div><div class="kb-in glass"><div class="kb-t"><span id="busyT">لطفاً صبر کنید</span><small id="busyM" hidden></small></div><div class="pa" aria-hidden="true"><div class="pa-in">
+    <i class="pa-sh"></i><i class="pa-sp a"></i><i class="pa-sp b"></i><i class="pa-sp c"></i><i class="pa-sp d"></i>
+    <div class="pa-pan"><i class="pa-cake"></i><svg viewBox="0 0 220 150"><defs><linearGradient id="gg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3d1"/><stop offset=".5" stop-color="#f1cb83"/><stop offset="1" stop-color="#c99e4c"/></linearGradient></defs>
+      <path d="M94 106 H184 Q182 122 166 123 H112 Q96 122 94 106 Z" fill="url(#gg)"/><path d="M96 108 Q72 100 46 104" fill="none" stroke="url(#gg)" stroke-width="5.5" stroke-linecap="round"/></svg></div>
+    <b class="pa-ok">✓</b></div></div><div class="kb-p goldtxt" id="ringP">۰٪</div><div class="kb-bar" id="ring"><i></i></div><div class="kb-s" id="busyS" hidden><span class="dot"></span><span id="busySt"></span></div><button class="pill" id="busyX" hidden><span data-ic="close"></span><span>لغو</span></button></div></div>
 <div class="toast" id="toast"></div>
 <input type="file" id="fImg" accept="image/*" hidden>
 <input type="file" id="fVid" accept="video/*" hidden>
