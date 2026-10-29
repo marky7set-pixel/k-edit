@@ -90,6 +90,7 @@
     }
     window.addEventListener('resize', function () { me.layout(); });
     this.lbl('q'); this.lbl('fxk');
+    this.hist = new History(this);
   }
   ImageEditor.prototype.thumbs = function () {
     var me = this; clearTimeout(this.tt);
@@ -113,7 +114,7 @@
       $$(me.root, '[data-el=name]').forEach(function (e) { e.textContent = im.name; });
       $$(me.root, '[data-el=info]').forEach(function (e) { e.textContent = KE.dims(im.w, im.h) + ' | ' + KE.size(im.size); });
       me.ambUrl = KE.ambOf(im.bmp, im.w, im.h); KE.setAmb(me.ambUrl);
-      requestAnimationFrame(function () { me.layout(true); me.thumbs(); me.alpha = /png|webp|gif|avif/.test(im.type) && KE.hasAlpha((function () { var c = document.createElement('canvas'); c.width = Math.min(512, im.w); c.height = Math.round(c.width * im.h / im.w); c.getContext('2d').drawImage(im.bmp, 0, 0, c.width, c.height); return c; })()); me.fmtUi(); me.upUi(); });
+      requestAnimationFrame(function () { me.layout(true); me.thumbs(); me.hist.reset(); me.alpha = /png|webp|gif|avif/.test(im.type) && KE.hasAlpha((function () { var c = document.createElement('canvas'); c.width = Math.min(512, im.w); c.height = Math.round(c.width * im.h / im.w); c.getContext('2d').drawImage(im.bmp, 0, 0, c.width, c.height); return c; })()); me.fmtUi(); me.upUi(); });
       return true;
     }, function () { me.ui.idle(); me.ui.toast('این فرمت عکس باز نمی‌شود؛ JPG، PNG یا WebP بدهید', 'err'); return false; });
   };
@@ -163,11 +164,14 @@
     $$(r, '[data-upd]').forEach(function (e) { var o = KE.imgOutSize(crop, 0, +e.getAttribute('data-upd')); e.textContent = KE.dims(o.w, o.h); });
     KE.Up.speed().then(function (sp) {
       var lim = KE.Up.limits(sp.kind, sp.pxs), big = px > lim.inPx, msg;
-      $$(r, '[data-up]').forEach(function (b) { var k = +b.getAttribute('data-up'); b.disabled = k > 0 && (big || Math.max(crop.w, crop.h) * k > lim.outSide); });
+      var fits = function (k) { return px * k * k <= lim.outPx && Math.max(crop.w, crop.h) * k <= lim.outSide; };
+      $$(r, '[data-up]').forEach(function (b) { var k = +b.getAttribute('data-up'); b.disabled = k > 0 && !fits(k); });
+      $$(r, '[data-upd]').forEach(function (e) { var k = +e.getAttribute('data-upd'); if (!fits(k)) e.textContent = 'خیلی بزرگ'; });
       if (up && $(r, '[data-up="' + up + '"]').disabled) { me.up = up = 0; selChip(r, 'data-up', '0'); me.upUi(); me.est(); return; }
-      if (big) msg = 'برای ارتقا، برش کوچک‌تری بزنید (تا ' + KE.fa((lim.inPx / 1e6).toFixed(lim.inPx < 1e6 ? 2 : 1)) + ' مگاپیکسل)';
-      else if (up) { var o = KE.imgOutSize(crop, 0, up); msg = 'هوش مصنوعی | خروجی ' + KE.dims(o.w, o.h) + (sp.kind === 'cpu' ? ' | حالت کند' : ''); }
-      else msg = 'هوش مصنوعی | جزئیات تازه می‌سازد';
+      var secs = px / Math.max(1, sp.pxs);
+      if (big) msg = 'این عکس خودش بزرگ است؛ برای ارتقا، قسمتی از آن را برش بزنید';
+      else if (up) { var o = KE.imgOutSize(crop, 0, up); msg = 'خروجی ' + KE.dims(o.w, o.h) + ' | ' + KE.etaText(secs * 1000) + (secs > 180 ? ' (طولانی)' : ''); }
+      else msg = 'هوش مصنوعی جزئیات تازه می‌سازد | ' + KE.etaText(secs * 1000) + ' برای ۲×';
       $$(r, '[data-el=upNote]').forEach(function (e) { e.innerHTML = msg; });
     }, function () {
       $$(r, '[data-up]').forEach(function (b) { b.disabled = +b.getAttribute('data-up') > 0; });
@@ -211,7 +215,15 @@
       stop: function () { clearInterval(timer); timer = null; }
     };
   };
-  KE.setEta = function (root, ms) { $$(root, '[data-el=eta] i').forEach(function (e) { e.textContent = KE.etaText(ms); }); };
+  KE.etaShort = function (ms) {
+    if (ms === 'wait') return 'سنجش…'; if (ms == null) return '—';
+    var s = ms / 1000; if (s < 1) return '< ۱ ث'; if (s < 55) return '≈ ' + KE.fa(Math.max(1, Math.round(s))) + ' ث';
+    return '≈ ' + KE.fa(Math.max(1, Math.round(s / 60))) + ' دقیقه';
+  };
+  KE.setEta = function (root, ms) {
+    $$(root, '[data-el=eta] i').forEach(function (e) { e.textContent = KE.etaText(ms); });
+    $$(root, '[data-el=etaS]').forEach(function (e) { e.textContent = KE.etaShort(ms); });
+  };
   ImageEditor.prototype.est = function () {
     if (!this.st) return;
     var me = this, crop = this.crop.rect(), out = KE.imgOutSize(crop, this.res, this.up), o = KE.oriented(this.st);
@@ -312,6 +324,7 @@
     v.addEventListener('timeupdate', function () { me.cur(); });
     window.addEventListener('resize', function () { me.layout(); });
     this.lbl(); this.fmtUi();
+    this.hist = new History(this);
   }
   VideoEditor.prototype.lbl = function () { var r = $(this.root, '[data-k=fxk]'), o = $(this.root, '[data-v=fxk]'); if (r && o) o.textContent = KE.fa(r.value); };
   var FPS = { vid: [15, 24, 30, 60], anim: [10, 12, 15, 20, 25, 30, 50] };
@@ -370,7 +383,7 @@
           requestAnimationFrame(function () {
             me.layout(true); me.trim.set(me.dur, me.a, me.b); me.trim.setT(0); me.times(); me.cur();
             me.trim.thumbs(me.url, v.videoWidth, v.videoHeight);
-            me.drawFx(); me.thumbs();
+            me.drawFx(); me.thumbs(); me.hist.reset();
           });
           res(true);
         };
@@ -514,5 +527,62 @@
     });
   };
 
+
+  /* back / forward: every change the user makes is a step that can be undone and redone */
+  function History(ed) { this.ed = ed; this.list = []; this.i = -1; this.lock = false; var me = this, r = ed.root;
+    var mark = function (e) { if (e && e.target && e.target.closest && e.target.closest('[data-act=undo],[data-act=redo]')) return; me.mark(); };
+    r.addEventListener('click', mark); r.addEventListener('input', mark); r.addEventListener('pointerup', mark);
+    act(r, 'undo', function () { me.go(-1); }); act(r, 'redo', function () { me.go(1); });
+    this.ui();
+  }
+  History.prototype.reset = function () { clearTimeout(this.t); this.list = this.ed.has() ? [this.ed.snap()] : []; this.i = this.list.length - 1; this.ui(); };
+  History.prototype.push = function () {
+    if (this.lock || !this.ed.has()) return; var s = this.ed.snap(), last = this.list[this.i];
+    if (last && JSON.stringify(last) === JSON.stringify(s)) return;
+    this.list = this.list.slice(0, this.i + 1); this.list.push(s); if (this.list.length > 80) this.list.shift(); this.i = this.list.length - 1; this.ui();
+  };
+  History.prototype.mark = function () { var me = this; if (me.lock) return; clearTimeout(me.t); me.t = setTimeout(function () { me.push(); }, 300); };
+  History.prototype.go = function (d) {
+    clearTimeout(this.t); this.push(); var j = this.i + d; if (j < 0 || j >= this.list.length || !this.ed.has()) return;
+    this.i = j; this.lock = true; try { this.ed.apply(this.list[j]); } finally { var me = this; setTimeout(function () { me.lock = false; }, 0); } this.ui();
+  };
+  History.prototype.can = function () { return { undo: this.i > 0, redo: this.i >= 0 && this.i < this.list.length - 1 }; };
+  History.prototype.ui = function () {
+    var c = this.can(), r = this.ed.root;
+    $$(r, '[data-act=undo]').forEach(function (b) { b.disabled = !c.undo; }); $$(r, '[data-act=redo]').forEach(function (b) { b.disabled = !c.redo; });
+    r.dispatchEvent(new CustomEvent('kehist', { detail: c }));
+  };
+  KE.History = History;
+  function setVal(root, k, v, lbl) { var el = $(root, '[data-k=' + k + ']'); if (el) el.value = v; if (lbl) lbl(k); }
+  ImageEditor.prototype.has = function () { return !!this.st; };
+  ImageEditor.prototype.snap = function () { var st = this.st; return { cr: Object.assign({}, this.crop.r), asp: this.aspectKey, rot: st.rot, fh: st.fh, fv: st.fv, bright: st.bright, contrast: st.contrast, sat: st.sat, fx: this.fx, fxk: this.fxk, up: this.up, fmt: this.fmt, res: this.res, qm: this.qm, q: this.q }; };
+  ImageEditor.prototype.apply = function (s) {
+    var me = this, st = me.st, r = me.root, lb = me.lbl.bind(me); if (!st) return;
+    st.rot = s.rot; st.fh = s.fh; st.fv = s.fv;
+    ['bright', 'contrast', 'sat'].forEach(function (k) { st[k] = s[k]; setVal(r, k, s[k], lb); });
+    me.aspectKey = s.asp; selChip(r, 'data-aspect', s.asp);
+    me.crop.aspect = s.asp === 'free' ? null : aspectOf(s.asp, KE.oriented(st)); me.layout(true);
+    me.crop.r = Object.assign({}, s.cr); me.crop.draw();
+    me.fx = st.fx = s.fx; me.strip.pick(s.fx, true); me.fxk = st.fxk = s.fxk; setVal(r, 'fxk', Math.round(s.fxk * 100), lb);
+    me.fmt = s.fmt; selChip(r, 'data-ifmt', s.fmt); me.up = s.up; selChip(r, 'data-up', String(s.up)); me.res = s.res; selChip(r, 'data-res', String(s.res));
+    me.qm = s.qm; selChip(r, 'data-qm', s.qm); r.classList.toggle('qm-manual', s.qm === 'manual'); me.q = s.q; setVal(r, 'q', Math.round(s.q * 100), lb);
+    me.fmtUi(); me.upUi(); me.paint(); me.est(); me.thumbs();
+  };
+  ImageEditor.prototype.resetGeo = function () { if (!this.st) return; this.st.rot = 0; this.st.fh = this.st.fv = false; this.aspectKey = 'free'; selChip(this.root, 'data-aspect', 'free'); this.crop.aspect = null; this.layout(true); this.thumbs(); this.hist.mark(); };
+  VideoEditor.prototype.has = function () { return !!this.ready; };
+  VideoEditor.prototype.snap = function () { return { cr: Object.assign({}, this.crop.r), asp: this.aspectKey, a: this.a, b: this.b, speed: this.speed, fx: this.fx, fxk: this.fxk, fmt: this.fmt, res: this.res, fps: this.fps, gq: this.gq, sound: this.sound, loop: this.loop }; };
+  VideoEditor.prototype.apply = function (s) {
+    var me = this, r = me.root, v = me.v; if (!me.ready) return;
+    me.aspectKey = s.asp; selChip(r, 'data-aspect', s.asp); me.crop.setAspect(s.asp === 'free' ? null : aspectOf(s.asp, { w: v.videoWidth, h: v.videoHeight }), true);
+    me.crop.r = Object.assign({}, s.cr); me.crop.draw();
+    me.a = s.a; me.b = s.b; me.trim.set(me.dur, s.a, s.b); me.times();
+    me.speed = s.speed; selChip(r, 'data-speed', String(s.speed));
+    me.fx = s.fx; me.strip.pick(s.fx, true); me.fxk = s.fxk; setVal(r, 'fxk', Math.round(s.fxk * 100)); me.lbl();
+    me.fmt = s.fmt; selChip(r, 'data-fmt', s.fmt); me.res = s.res; selChip(r, 'data-res', String(s.res)); me.fps = s.fps; me.gq = s.gq; selChip(r, 'data-gq', s.gq);
+    me.sound = s.sound; me.loop = s.loop;
+    $$(r, '[data-act=sound]').forEach(function (b) { b.classList.toggle('sel', s.sound); b.setAttribute('aria-pressed', s.sound); });
+    $$(r, '[data-act=loop]').forEach(function (b) { b.classList.toggle('sel', s.loop); b.setAttribute('aria-pressed', s.loop); });
+    me.fmtUi(); me.drawFx(); me.est();
+  };
   KE.ImageEditor = ImageEditor; KE.VideoEditor = VideoEditor; KE.selChip = selChip;
 })();

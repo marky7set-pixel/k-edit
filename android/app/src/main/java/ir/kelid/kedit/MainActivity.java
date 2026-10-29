@@ -44,6 +44,13 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCb;
     private Uri sharedUri;
     private String sharedType = "", sharedName = "";
+    private boolean askedNotif = false;
+
+    @Override
+    protected void onDestroy() {
+        BusyService.update(this, false, 0, null);
+        super.onDestroy();
+    }
 
     @Override
     protected void onCreate(Bundle b) {
@@ -113,6 +120,7 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
+        if (Build.VERSION.SDK_INT >= 26) web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
         web.addJavascriptInterface(new Bridge(), "KEditNative");
         readIntent(getIntent());
         web.loadUrl("https://" + HOST + "/assets/ui/mobile.html");
@@ -328,5 +336,16 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void clearShared() { sharedType = ""; }
+
+        // a build is running: keep working with the screen off, show progress in a notification
+        @JavascriptInterface
+        public void busy(boolean on, int pct, String title) {
+            if (on && Build.VERSION.SDK_INT >= 33 && !askedNotif
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                askedNotif = true;
+                runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, PERM + 1));
+            }
+            BusyService.update(MainActivity.this, on, pct, title);
+        }
     }
 }

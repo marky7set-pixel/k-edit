@@ -20,7 +20,7 @@
     mode = m; document.body.className = 'desk mode-' + m;
     document.querySelectorAll('.mode').forEach(function (b) { b.classList.toggle('sel', b.getAttribute('data-mode') === m); });
     edImg.hidden = m !== 'img'; edVid.hidden = m !== 'vid'; if (m === 'img') VE.v.pause();
-    ink(); sync(); KE.setAmb(ed().ambUrl); requestAnimationFrame(function () { ed().layout(); });
+    ink(); sync(); KE.setAmb(ed().ambUrl); histUi(); requestAnimationFrame(function () { ed().layout(); });
   }
   function sync() {
     var has = root().classList.contains('has-file');
@@ -86,11 +86,18 @@
     });
   });
   $('resReveal').addEventListener('click', function () { KE.reveal(saved); });
+  // back / forward through changes
+  function histUi() { var c = ed().hist.can(); $('btnUndo').disabled = !c.undo; $('btnRedo').disabled = !c.redo; }
+  [edImg, edVid].forEach(function (sec) { sec.addEventListener('kehist', function () { if (sec === root()) histUi(); }); });
+  $('btnUndo').addEventListener('click', function () { ed().hist.go(-1); });
+  $('btnRedo').addEventListener('click', function () { ed().hist.go(1); });
   // keyboard
   window.addEventListener('keydown', function (e) {
     var k = e.key, c = e.ctrlKey || e.metaKey;
     if (c && (k === 'o' || k === 'O')) { e.preventDefault(); pick(); return; }
     if (c && (k === 's' || k === 'S')) { e.preventDefault(); if (!$('res').hidden) $('resSave').click(); else root().querySelector('[data-act=export]').click(); return; }
+    if (c && (k === 'z' || k === 'Z') && $('res').hidden) { e.preventDefault(); ed().hist.go(e.shiftKey ? 1 : -1); return; }
+    if (c && (k === 'y' || k === 'Y') && $('res').hidden) { e.preventDefault(); ed().hist.go(1); return; }
     if (k === 'Escape') { back(); return; }
     if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
     if (mode === 'vid' && VE.ready && $('res').hidden) {

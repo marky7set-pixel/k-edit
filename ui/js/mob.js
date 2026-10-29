@@ -21,10 +21,12 @@
     if (to === 'home') KE.setAmb(null);
     if (top === 'res') document.getElementById('resVid').pause();
     if (top === 'edVid') VE.close(); if (top === 'edImg') IE.close();
+    if (top === 'edVid' || top === 'edImg') resetSteps($(top));
     document.querySelectorAll('.scr').forEach(function (s) { s.classList.remove('left'); s.classList.toggle('on', s.id === to); });
     return true;
   }
   window.kBack = back;
+  function resetSteps(root) { root.querySelectorAll('.st').forEach(function (t) { t.classList.remove('done'); }); root.classList.remove('folded'); if (root.goStep) root.goStep(0); }
   document.querySelectorAll('[data-back]').forEach(function (b) { b.addEventListener('click', back); });
   function openIn(kind, f) {
     if (!f) return;
@@ -37,26 +39,42 @@
   document.querySelectorAll('[data-repick]').forEach(function (b) { b.addEventListener('click', function () { (b.closest('#edImg') ? $('fImg') : $('fVid')).click(); }); });
   $('fImg').addEventListener('change', function (e) { openIn('img', e.target.files[0]); e.target.value = ''; });
   $('fVid').addEventListener('change', function (e) { openIn('vid', e.target.files[0]); e.target.value = ''; });
-  // dock row: each tab opens its own controls; the picture takes whatever room is left
+  // step by step: a strip of steps on top, one fixed panel below that can fold away
   document.querySelectorAll('.ed').forEach(function (root) {
-    var ctl = root.querySelector('.ctl'), nm = root.querySelector('.ch-n');
-    root.querySelectorAll('.tab').forEach(function (t) {
-      t.addEventListener('click', function () {
-        var k = t.getAttribute('data-tab');
-        root.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('sel', x === t); x.setAttribute('aria-pressed', x === t); });
-        root.querySelectorAll('.pane').forEach(function (p) { p.classList.toggle('on', p.getAttribute('data-pane') === k); });
-        root.setAttribute('data-tool', k); if (nm) nm.textContent = t.getAttribute('data-title');
-        fitCtl(); requestAnimationFrame(function () { (root.id === 'edImg' ? IE : VE).layout(); });
-      });
+    var E = root.id === 'edImg' ? IE : VE, tabs = [].slice.call(root.querySelectorAll('.st')), nm = root.querySelector('.ch-n'), kk = root.querySelector('.ch-k'), mn = root.querySelector('.mini-n');
+    function cur() { for (var i = 0; i < tabs.length; i++) if (tabs[i].classList.contains('sel')) return i; return 0; }
+    function go(i) {
+      i = Math.max(0, Math.min(tabs.length - 1, i)); var t = tabs[i], k = t.getAttribute('data-tab');
+      tabs.forEach(function (x) { x.classList.toggle('sel', x === t); x.setAttribute('aria-pressed', x === t); });
+      root.querySelectorAll('.pane').forEach(function (p) { p.classList.toggle('on', p.getAttribute('data-pane') === k); });
+      root.setAttribute('data-tool', k); root.classList.toggle('last', i === tabs.length - 1);
+      nm.textContent = mn.textContent = t.getAttribute('data-title'); kk.textContent = KE.fa(i + 1) + ' از ' + KE.fa(tabs.length);
+      if (E === VE && k !== 'cut' && !VE.v.paused) VE.v.pause();
+      root.querySelector('.panel').scrollTop = 0; requestAnimationFrame(function () { E.layout(); });
+    }
+    root.goStep = go;
+    tabs.forEach(function (t, i) { t.addEventListener('click', function () { fold(false); go(i); }); });
+    root.querySelector('[data-act=next]').addEventListener('click', function () { var i = cur(); tabs[i].classList.add('done'); go(i + 1); });
+    root.querySelector('[data-act=prevStep]').addEventListener('click', function () { go(cur() - 1); });
+    root.querySelector('[data-act=stepReset]').addEventListener('click', function () {
+      var k = tabs[cur()].getAttribute('data-tab'), q = function (s) { var b = root.querySelector(s); if (b) b.click(); };
+      tabs[cur()].classList.remove('done');
+      if (k === 'crop') { if (E === IE) IE.resetGeo(); else q('[data-act=resetCrop]'); }
+      else if (k === 'adj') q('[data-act=resetAdj]');
+      else if (k === 'fx') { q('.fxi[data-fx="0"]'); var r = root.querySelector('input[data-k=fxk]'); if (r) { r.value = 50; r.dispatchEvent(new Event('input', { bubbles: true })); } }
+      else if (k === 'cut') { q('[data-act=resetTrim]'); q('[data-speed="1"]'); }
     });
-    // header line never wraps or cuts: long estimates get a slightly smaller size
-    var ch = root.querySelector('.ch'), che = root.querySelector('.ch-e');
-    function fitCh() { if (!ch || !ch.offsetWidth) return; var f = 12.5; che.style.fontSize = ''; while (ch.scrollWidth > ch.clientWidth + 1 && f > 10) { f -= 0.5; che.style.fontSize = f + 'px'; } }
-    if (window.MutationObserver) new MutationObserver(fitCh).observe(che, { childList: true, subtree: true, characterData: true });
-    root.querySelectorAll('.tab').forEach(function (t) { t.addEventListener('click', fitCh); });
-    function fitCtl() { root.style.setProperty('--ctlh', ctl.offsetHeight + 'px'); }
-    if (window.ResizeObserver) new ResizeObserver(fitCtl).observe(ctl);
-    fitCtl();
+    // fold: tap the handle, or swipe the panel down; swipe the bar up (or tap) to bring it back
+    function fold(on) { if (root.classList.contains('folded') === !!on) return; root.classList.toggle('folded', !!on); requestAnimationFrame(function () { E.layout(); }); }
+    root.querySelector('[data-act=fold]').addEventListener('click', function () { fold(true); });
+    root.querySelector('[data-act=unfold]').addEventListener('click', function () { fold(false); });
+    function swipe(el, dir) {
+      var y0 = null;
+      el.addEventListener('touchstart', function (e) { if (e.target.closest('input,.trim,.row.scroll,.fxrow')) { y0 = null; return; } y0 = e.touches[0].clientY; }, { passive: true });
+      el.addEventListener('touchend', function (e) { if (y0 == null) return; var dy = e.changedTouches[0].clientY - y0; y0 = null; if (dir > 0 ? dy > 60 : dy < -40) fold(dir > 0); }, { passive: true });
+    }
+    swipe(root.querySelector('.ctl'), 1); swipe(root.querySelector('.mini'), -1);
+    root.foldPanel = fold; go(0);
   });
   if (window.ResizeObserver) {
     new ResizeObserver(function () { IE.layout(); }).observe(IE.stage);

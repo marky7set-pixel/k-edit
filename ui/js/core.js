@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var KE = window.KE = {};
-  KE.version = '1.4.0';
+  KE.version = '1.5.0';
   var FA = '۰۱۲۳۴۵۶۷۸۹';
   KE.fa = function (v) { return String(v).replace(/[0-9]/g, function (d) { return FA[d]; }).replace(/\./g, '٫'); };
   KE.size = function (b) {
@@ -487,6 +487,8 @@
 
   /* ---------- icons (stroke, currentColor) ---------- */
   var IC = {
+    undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>', redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+    cut: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/>', chevu: '<path d="m6 15 6-6 6 6"/>', chevd: '<path d="m6 9 6 6 6-6"/>',
     back: '<path d="M9 5l7 7-7 7"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7.6v.2" stroke-width="2.4"/>',
     img: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M4 18l5-5 4 4 3-3 4 4"/>',

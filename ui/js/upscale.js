@@ -221,11 +221,10 @@
     return eng;
   };
   U._reset = function () { if (eng) eng.then(function (E) { try { E.net.free(); } catch (e) {} }); eng = null; speed = null; };
-  U.limits = function (kind, pxs) { // input pixels allowed: what this device finishes in about a minute and a half, within safe memory caps
+  U.limits = function (kind, pxs) { // sizes this device can hold in memory; time is shown, never used to switch the feature off
     var phone = KE.platform === 'android' || /Android|iPhone|iPad/.test(navigator.userAgent);
-    var cap = kind === 'cpu' ? (phone ? 0.3e6 : 1.0e6) : (phone ? 1.0e6 : 4.2e6), budget = phone ? 90 : 120;
-    var inPx = pxs ? Math.max(0.06e6, Math.min(cap, pxs * budget)) : (kind === 'cpu' ? (phone ? 0.08e6 : 0.3e6) : cap);
-    return { inPx: inPx, outSide: phone ? 4096 : 8192 };
+    var outPx = kind === 'cpu' ? (phone ? 12e6 : 36e6) : (phone ? 24e6 : 64e6);
+    return { outPx: outPx, inPx: outPx / 4, outSide: phone ? 6144 : 12288, pxs: pxs };
   };
   // speed of this device in input pixels per second (measured once on a small tile)
   var speed = null;
@@ -253,7 +252,20 @@
       var w = src.width, h = src.height, T = E.kind === 'gpu' ? (Math.min(w, h) > 600 ? 256 : 192) : E.kind === 'gl' ? 160 : 96;
       while (E.kind === 'gpu' && 64 * (T + 2 * PAD) * (T + 2 * PAD) * 4 > E.net.g.maxBuf) T -= 32;
       var sx = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
-      var out = document.createElement('canvas'); out.width = w * 4; out.height = h * 4;
+      var S = scale === 2 || scale === 3 ? scale : 4; // the network gives 4x; each tile is reduced at once so memory stays at the size asked for
+      var out = document.createElement('canvas'); out.width = w * S; out.height = h * S;
+      var wts = {}; function axis(n) { // area weights from 4n source pixels to S*n target pixels
+        var k = n + ':' + S; if (wts[k]) return wts[k]; var r = [], f = 4 / S;
+        for (var X = 0; X < n * S; X++) { var a0 = X * f, a1 = a0 + f, lst = []; for (var q = Math.floor(a0); q < Math.ceil(a1 - 1e-9); q++) { var wgt = Math.min(a1, q + 1) - Math.max(a0, q); if (wgt > 1e-9) lst.push(q, wgt / f); } r.push(lst); }
+        return (wts[k] = r);
+      }
+      function shrink(img, tw, th) {
+        if (S === 4) return img; var iw = tw * 4, s = img.data, ax = axis(tw), ay = axis(th), o = new ImageData(tw * S, th * S), d = o.data;
+        for (var Y = 0; Y < th * S; Y++) { var ly = ay[Y]; for (var X = 0; X < tw * S; X++) { var lx = ax[X], c0 = 0, c1 = 0, c2 = 0, c3 = 0;
+          for (var b = 0; b < ly.length; b += 2) { var row = ly[b] * iw, wy = ly[b + 1]; for (var a = 0; a < lx.length; a += 2) { var i = (row + lx[a]) * 4, wv = wy * lx[a + 1]; c0 += s[i] * wv; c1 += s[i + 1] * wv; c2 += s[i + 2] * wv; c3 += s[i + 3] * wv; } }
+          var di = (Y * tw * S + X) * 4; d[di] = c0 + 0.5; d[di + 1] = c1 + 0.5; d[di + 2] = c2 + 0.5; d[di + 3] = c3 + 0.5; } }
+        return o;
+      }
       var ox = out.getContext('2d'), tiles = [];
       for (var ty = 0; ty < h; ty += T) for (var tx = 0; tx < w; tx += T) tiles.push([tx, ty, Math.min(T, w - tx), Math.min(T, h - ty)]);
       var done = 0, par = E.kind === 'cpu' ? E.net.parallel() : 1, next = 0;
@@ -273,7 +285,7 @@
               d[di2 + 3] = sx[((t[1] + (yy >> 2)) * w + t[0] + (xx >> 2)) * 4 + 3];
             }
           }
-          ox.putImageData(img, t[0] * 4, t[1] * 4);
+          ox.putImageData(shrink(img, t[2], t[3]), t[0] * S, t[1] * S);
           done++; onProgress && onProgress(done / tiles.length, done, tiles.length);
         });
       }
@@ -281,10 +293,7 @@
       var lanes = []; for (var k = 0; k < par; k++) lanes.push(lane());
       var watch, stop = new Promise(function (res, rej) { watch = setInterval(function () { if (cancelled && cancelled()) { clearInterval(watch); if (E.kind === 'cpu') { E.net.free(); eng = null; } rej(new Error('cancel')); } }, 80); });
       return Promise.race([Promise.all(lanes), stop]).then(function (x) { clearInterval(watch); return x; }, function (e) { clearInterval(watch); throw e; }).then(function () {
-        if (scale === 4) return out;
-        var f = document.createElement('canvas'); f.width = Math.round(w * scale); f.height = Math.round(h * scale);
-        var fx = f.getContext('2d'); fx.imageSmoothingEnabled = true; fx.imageSmoothingQuality = 'high'; fx.drawImage(out, 0, 0, f.width, f.height);
-        out.width = out.height = 1; return f;
+        return out;
       });
     });
   };

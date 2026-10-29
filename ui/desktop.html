@@ -5,173 +5,130 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>K-Edit · ادیت کلید</title>
 <link rel="icon" href="img/kedit-icon.png">
-<link rel="stylesheet" href="css/theme.css">
+<link rel="stylesheet" href="css/base.css">
 <link rel="stylesheet" href="css/desk.css">
-<link rel="stylesheet" href="css/dock.css">
 </head>
 <body class="desk mode-img">
 <div class="amb"></div>
 <header class="top">
   <div class="brand"><img src="img/kedit-icon.png" alt=""><div><b>K-Edit</b><span>ادیت کلید</span></div></div>
-  <nav class="modes glass" role="tablist">
-    <button class="mode sel" data-mode="img" role="tab"><span data-ic="img"></span>عکس</button>
-    <button class="mode" data-mode="vid" role="tab"><span data-ic="vid"></span>ویدیو</button>
-    <i class="mode-ink"></i>
-  </nav>
+  <nav class="modes glass" role="tablist"><button class="mode sel" data-mode="img" role="tab"><span data-ic="img"></span>عکس</button><button class="mode" data-mode="vid" role="tab"><span data-ic="vid"></span>ویدیو</button><i class="mode-ink"></i></nav>
   <div class="top-end">
     <button class="pill" id="btnBack" hidden><span data-ic="back"></span>بازگشت</button>
     <button class="pill" id="btnOpen"><span data-ic="open"></span>فایل تازه</button>
-    <span class="status" id="stat">آماده</span>
+    <button class="pill ico" id="btnUndo" title="برگشت به تغییر قبلی (Ctrl+Z)" aria-label="برگشت به تغییر قبلی" data-ic="undo" disabled></button>
+    <button class="pill ico" id="btnRedo" title="رفتن به تغییر بعدی (Ctrl+Y)" aria-label="رفتن به تغییر بعدی" data-ic="redo" disabled></button>
+    <span class="sr"><span class="status" id="stat">آماده</span></span>
   </div>
 </header>
 
 <main class="work">
-  <!-- ============ IMAGE ============ -->
-  <section class="ed" id="edImg" data-kind="img" data-tool="crop">
-    <div class="board">
-      <div class="stage" data-el="stage">
-        <div class="frame" data-el="frame"><canvas data-el="canvas"></canvas><div class="crop" data-el="crop"></div></div>
-        <div class="drop glass"><div class="drop-ic" data-ic="img"></div><b>عکس را اینجا رها کنید</b><span>یا <kbd>Ctrl</kbd>+<kbd>O</kbd> | JPG، PNG، WebP</span><button class="go btn-gold" data-pick><span data-ic="open"></span>انتخاب عکس</button></div>
+  <!-- image -->
+  <section class="ed" id="edImg" data-kind="img" data-tool="edit">
+    <div class="board"><div class="stage" data-el="stage">
+      <div class="frame" data-el="frame"><canvas data-el="canvas"></canvas><div class="crop" data-el="crop"></div></div>
+      <button class="ibtn cmp" data-act="compare" data-ic="eye" title="نگه دارید: عکس اصلی" aria-label="نگه دارید: عکس اصلی"></button>
+      <div class="drop glass"><div class="drop-ic" data-ic="img"></div><b>عکس را اینجا رها کنید</b><span>یا <kbd>Ctrl</kbd>+<kbd>O</kbd> | JPG، PNG، WebP</span><button class="go" data-pick><span data-ic="open"></span>انتخاب عکس</button></div>
+    </div></div>
+    <aside class="insp glass" data-mode="edit">
+      <span class="sr"><b data-el="name"></b><small data-el="info"></small></span>
+      <div class="live">
+        <div class="lv-io"><span>ورودی <b data-el="inDims">—</b></span><span class="lv-ar" data-ic="prev"></span><span>خروجی <b class="gd" data-el="outDims">—</b></span></div>
+        <div class="lv-g"><div class="lv-c"><small>حجم</small><b data-el="dPct">—</b><em data-el="szPair">—</em></div><div class="lv-c"><small>وضوح</small><b data-el="rPct">—</b><em data-el="rTxt">—</em></div><div class="lv-c"><small>زمان ساخت</small><b data-el="etaS">—</b><em>تا آماده شدن</em></div></div>
       </div>
-    </div>
-    <aside class="insp glass" data-mode="crop">
-      <div class="fileline"><span data-ic="img"></span><b data-el="name">بدون فایل</b><small data-el="info"></small></div>
-      <div class="pnl" data-grp="crop">
-        <div class="dh"><h2>برش و چرخش</h2><button class="link" data-act="resetCrop">بازنشانی</button></div>
-        <div class="lbl">نسبت</div>
-        <div class="grid4"><button class="chip sel" data-aspect="free">آزاد</button><button class="chip" data-aspect="orig">اصلی</button><button class="chip" data-aspect="1:1">۱:۱</button><button class="chip" data-aspect="4:5">۴:۵</button><button class="chip" data-aspect="4:3">۴:۳</button><button class="chip" data-aspect="3:2">۳:۲</button><button class="chip" data-aspect="16:9">۱۶:۹</button><button class="chip" data-aspect="9:16">۹:۱۶</button></div>
-        <div class="lbl">چرخش و آینه</div>
-        <div class="rbs">
-          <button class="ibtn rb" data-act="rotr" title="چرخش به راست" data-ic="rotr"></button>
-          <button class="ibtn rb" data-act="rotl" title="چرخش به چپ" data-ic="rotl"></button>
-          <button class="ibtn rb" data-act="fliph" title="آینه افقی" data-ic="fliph"></button>
-          <button class="ibtn rb" data-act="flipv" title="آینه عمودی" data-ic="flipv"></button>
-        </div>
-        <p class="note end"><span class="dot"></span>گوشه‌های کادر را روی عکس بکشید</p>
-      </div>
-      <div class="pnl" data-grp="adj">
-        <div class="dh"><h2>نور و رنگ</h2><button class="link" data-act="resetAdj">بازنشانی</button></div>
+      <div class="pnl" data-grp="edit">
+        <div class="sh"><b><span data-ic="crop"></span>برش و چرخش</b><button class="link" data-act="resetCrop">بازنشانی</button></div>
+        <div class="g4"><button class="chip sel" data-aspect="free">آزاد</button><button class="chip" data-aspect="orig">اصلی</button><button class="chip" data-aspect="1:1">۱:۱</button><button class="chip" data-aspect="4:5">۴:۵</button><button class="chip" data-aspect="4:3">۴:۳</button><button class="chip" data-aspect="3:2">۳:۲</button><button class="chip" data-aspect="16:9">۱۶:۹</button><button class="chip" data-aspect="9:16">۹:۱۶</button></div>
+        <div class="g4"><button class="ibtn sq" data-act="rotr" title="چرخش به راست" data-ic="rotr"></button><button class="ibtn sq" data-act="rotl" title="چرخش به چپ" data-ic="rotl"></button><button class="ibtn sq" data-act="fliph" title="آینه افقی" data-ic="fliph"></button><button class="ibtn sq" data-act="flipv" title="آینه عمودی" data-ic="flipv"></button></div>
+        <div class="sh"><b><span data-ic="drop"></span>نور و رنگ</b><button class="link" data-act="resetAdj">بازنشانی</button></div>
         <div class="sl"><label>روشنایی</label><input type="range" min="50" max="150" value="100" data-k="bright"><output data-v="bright">۰</output></div>
         <div class="sl"><label>کنتراست</label><input type="range" min="50" max="150" value="100" data-k="contrast"><output data-v="contrast">۰</output></div>
         <div class="sl"><label>اشباع</label><input type="range" min="0" max="200" value="100" data-k="sat"><output data-v="sat">۰</output></div>
-        <button class="pill wide end" data-act="compare"><span data-ic="eye"></span>نگه دارید: عکس اصلی</button>
+        <div class="sh"><b><span data-ic="up"></span>ارتقا با هوش مصنوعی</b></div>
+        <div class="g4 ups"><button class="card sel" data-up="0"><b>خاموش</b></button><button class="card" data-up="2"><b>⁦2×⁩</b><small data-upd="2"></small></button><button class="card" data-up="3"><b>⁦3×⁩</b><small data-upd="3"></small></button><button class="card" data-up="4"><b>⁦4×⁩</b><small data-upd="4"></small></button></div>
+        <p class="note"><span class="dot"></span><span data-el="upNote">هوش مصنوعی جزئیات تازه می‌سازد</span></p>
       </div>
-      <div class="pnl fxsec" data-grp="fx">
-        <div class="dh"><h2>افکت</h2><small data-el="fxName">بدون افکت</small></div>
+      <div class="pnl" data-grp="fx">
+        <div class="sh"><b><span data-ic="wand"></span>افکت</b><small data-el="fxName">بدون افکت</small></div>
         <div class="sl fx-k"><label>شدت</label><input type="range" min="0" max="100" value="50" data-k="fxk"><output data-v="fxk">۵۰</output></div>
-        <div class="fxstrip" data-el="fxstrip"></div>
-      </div>
-      <div class="pnl" data-grp="up">
-        <div class="dh"><h2>ارتقا با هوش مصنوعی</h2></div>
-        <div class="ups"><button class="card sel" data-up="0"><b>خاموش</b></button><button class="card" data-up="2"><b>⁦2×⁩</b><small data-upd="2"></small></button><button class="card" data-up="3"><b>⁦3×⁩</b><small data-upd="3"></small></button><button class="card" data-up="4"><b>⁦4×⁩</b><small data-upd="4"></small></button></div>
-        <p class="note"><span class="dot"></span><span data-el="upNote">هوش مصنوعی | جزئیات تازه می‌سازد</span></p>
-        <p class="note"><span class="dot ok"></span>بعد از ساخت، قبل و بعد را با خط کنار هم ببینید</p>
+        <div class="fxgrid" data-el="fxstrip"></div>
       </div>
       <div class="pnl" data-grp="out">
-        <div class="dh"><h2>خروجی</h2><span class="legend"><span data-ic="globe"></span>مناسب سایت</span></div>
-        <div class="fmts c3">
-          <button class="fmt" data-ifmt="avif"><span class="site" data-ic="globe"></span><b>AVIF</b><small>کم‌حجم‌ترین</small></button>
-          <button class="fmt sel" data-ifmt="webp"><span class="site" data-ic="globe"></span><b>WebP</b><small class="rec">★ پیشنهاد</small></button>
-          <button class="fmt" data-ifmt="jpg"><b>JPG</b><small>همه‌جا باز می‌شود</small></button>
-        </div>
-        <p class="hint warn" data-el="fmtNote" hidden></p>
+        <div class="sh"><b><span data-ic="out"></span>خروجی</b><span class="legend"><span data-ic="globe"></span>مناسب سایت</span></div>
+        <div class="fmts c3"><button class="fmt" data-ifmt="avif"><span class="site" data-ic="globe"></span><b>AVIF</b><small>کم‌حجم‌ترین</small></button><button class="fmt sel" data-ifmt="webp"><span class="site" data-ic="globe"></span><b>WebP</b><small class="rec">★ پیشنهاد</small></button><button class="fmt" data-ifmt="jpg"><b>JPG</b><small>همه‌جا باز می‌شود</small></button></div>
+        <p class="note warn" data-el="fmtNote" hidden></p>
         <div class="lbl">کیفیت</div>
         <div class="segc"><button class="chip sel" data-qm="smart">هوشمند</button><button class="chip" data-qm="lossless">بی‌افت</button><button class="chip" data-qm="manual">دستی</button></div>
         <div class="sl qm-manual-only"><label>کیفیت</label><input type="range" min="40" max="99" value="85" data-k="q"><output data-v="q">۸۵</output></div>
-        <div class="resgrp" data-el="resSec">
-          <div class="lbl">وضوح <small data-el="resNote">بزرگ‌تر از اصل = بزرگ‌نمایی ساده</small></div>
-          <div class="grid6"><button class="chip sel" data-res="0">اصلی</button><button class="chip" data-res="480">480p</button><button class="chip" data-res="720">720p</button><button class="chip" data-res="1080">1080p</button><button class="chip" data-res="1440">2K</button><button class="chip" data-res="2160">4K</button></div>
-        </div>
-        <div class="io">
-          <div class="io-c"><small>ورودی</small><b data-el="inDims">—</b><span data-el="inSize">—</span></div>
-          <span class="io-arrow" data-ic="prev"></span>
-          <div class="io-c out"><small>خروجی</small><b data-el="outDims">—</b><span class="goldv" data-el="outSize">—</span></div>
-        </div>
-        <div class="io-tags"><span class="tag" data-el="dSize">—</span><span class="tag" data-el="dRes">—</span></div>
+        <div class="resgrp" data-el="resSec"><div class="lbl">وضوح <small data-el="resNote"></small></div>
+          <div class="g6"><button class="chip sel" data-res="0">اصلی</button><button class="chip" data-res="480">480p</button><button class="chip" data-res="720">720p</button><button class="chip" data-res="1080">1080p</button><button class="chip" data-res="1440">2K</button><button class="chip" data-res="2160">4K</button></div></div>
       </div>
     </aside>
-    <nav class="dock glass"><button class="tool sel" data-seg="crop"><span data-ic="crop"></span><em>برش</em></button><button class="tool" data-seg="adj"><span data-ic="drop"></span><em>رنگ</em></button><button class="tool" data-seg="fx"><span data-ic="wand"></span><em>افکت</em></button><button class="tool" data-seg="up"><span data-ic="up"></span><em>ارتقا</em></button><button class="tool" data-seg="out"><span data-ic="out"></span><em>خروجی</em></button><i class="dsep"></i><button class="go btn-gold" data-act="export"><span data-ic="spark"></span><span class="go-t"><b data-el="expLbl">ساخت WebP</b><small><span data-el="outSize">—</span> | <span class="tm" data-el="eta"><i>—</i></span></small></span></button></nav>
+    <nav class="dock glass"><button class="tool sel" data-seg="edit"><span data-ic="edit"></span><em>ویرایش</em></button><button class="tool" data-seg="fx"><span data-ic="wand"></span><em>افکت</em></button><button class="tool" data-seg="out"><span data-ic="out"></span><em>خروجی</em></button><i class="dsep"></i><button class="go" data-act="export"><span data-ic="spark"></span><span class="go-t"><b data-el="expLbl">ساخت WebP</b><small><span data-el="outSize">—</span> | <span data-el="eta"><i>—</i></span></small></span></button></nav>
   </section>
 
-  <!-- ============ VIDEO ============ -->
-  <section class="ed" id="edVid" data-kind="vid" data-tool="crop" hidden>
-    <div class="board">
-      <div class="stage" data-el="stage">
-        <div class="frame" data-el="frame"><video data-el="video" muted playsinline></video><canvas class="fxcv" data-el="fxcv" hidden></canvas><div class="crop" data-el="crop"></div></div>
-        <div class="drop glass"><div class="drop-ic" data-ic="vid"></div><b>ویدیو را اینجا رها کنید</b><span>یا <kbd>Ctrl</kbd>+<kbd>O</kbd> | MP4، WebM، MOV</span><button class="go btn-gold" data-pick><span data-ic="open"></span>انتخاب ویدیو</button></div>
-      </div>
-    </div>
+  <!-- video -->
+  <section class="ed" id="edVid" data-kind="vid" data-tool="edit" hidden>
+    <div class="board"><div class="stage" data-el="stage">
+      <div class="frame" data-el="frame"><video data-el="video" muted playsinline></video><canvas class="fxcv" data-el="fxcv" hidden></canvas><div class="crop" data-el="crop"></div></div>
+      <div class="drop glass"><div class="drop-ic" data-ic="vid"></div><b>ویدیو را اینجا رها کنید</b><span>یا <kbd>Ctrl</kbd>+<kbd>O</kbd> | MP4، WebM، MOV</span><button class="go" data-pick><span data-ic="open"></span>انتخاب ویدیو</button></div>
+    </div></div>
     <div class="tl glass">
-      <div class="transport">
-        <button class="ibtn rb s" data-act="goA" title="رفتن به شروع" data-ic="start"></button>
-        <button class="ibtn rb s" data-act="stepB" title="یک فریم عقب" data-ic="prev"></button>
-        <button class="ibtn rb play" data-act="play" title="پخش (فاصله)"><span class="i-play" data-ic="play"></span><span class="i-pause" data-ic="pause"></span></button>
-        <button class="ibtn rb s" data-act="stepF" title="یک فریم جلو" data-ic="next"></button>
-        <button class="ibtn rb s" data-act="goB" title="رفتن به پایان" data-ic="end"></button>
-        <b class="tc" data-el="tCur">—</b>
+      <div class="trow">
+        <button class="pill" data-act="setA"><span data-ic="start"></span>شروع از اینجا</button>
+        <div class="tmid">
+          <button class="ibtn" data-act="goA" title="رفتن به شروع" data-ic="start"></button><button class="ibtn" data-act="stepB" title="یک فریم عقب" data-ic="prev"></button>
+          <button class="ibtn play" data-act="play" title="پخش (فاصله)"><span class="i-play" data-ic="play"></span><span class="i-pause" data-ic="pause"></span></button>
+          <button class="ibtn" data-act="stepF" title="یک فریم جلو" data-ic="next"></button><button class="ibtn" data-act="goB" title="رفتن به پایان" data-ic="end"></button>
+          <b class="tc" data-el="tCur">—</b>
+        </div>
+        <button class="pill" data-act="setB">پایان اینجا<span data-ic="end"></span></button>
       </div>
       <div class="trim" data-el="trim"></div>
-      <div class="tl-labels"><span>شروع <b data-el="tA">—</b></span><span class="tl-len">طول بازه <b data-el="tLen">—</b></span><span>پایان <b data-el="tB">—</b></span></div>
+      <div class="tlab"><span>شروع <b data-el="tA">—</b></span><span>طول بازه <b data-el="frames">—</b></span><span>پایان <b data-el="tB">—</b></span></div>
     </div>
-    <aside class="insp glass" data-mode="crop">
-      <div class="fileline"><span data-ic="vid"></span><b data-el="name">بدون فایل</b><small data-el="info"></small></div>
-      <div class="pnl" data-grp="crop">
-        <div class="dh"><h2>برش کادر</h2><button class="link" data-act="resetCrop">بازنشانی</button></div>
-        <div class="lbl">نسبت</div>
-        <div class="grid4"><button class="chip sel" data-aspect="free">آزاد</button><button class="chip" data-aspect="orig">اصلی</button><button class="chip" data-aspect="1:1">۱:۱</button><button class="chip" data-aspect="4:5">۴:۵</button><button class="chip" data-aspect="4:3">۴:۳</button><button class="chip" data-aspect="3:2">۳:۲</button><button class="chip" data-aspect="16:9">۱۶:۹</button><button class="chip" data-aspect="9:16">۹:۱۶</button></div>
-        <p class="note end"><span class="dot"></span>گوشه‌های کادر را روی ویدیو بکشید</p>
+    <aside class="insp glass" data-mode="edit">
+      <span class="sr"><b data-el="name"></b><small data-el="info"></small><b data-el="tLen"></b></span>
+      <div class="live">
+        <div class="lv-io"><span>ورودی <b data-el="inDims">—</b></span><span class="lv-ar" data-ic="prev"></span><span>خروجی <b class="gd" data-el="outDims">—</b></span></div>
+        <div class="lv-g"><div class="lv-c"><small>حجم</small><b data-el="dPct">—</b><em data-el="szPair">—</em></div><div class="lv-c"><small>وضوح</small><b data-el="rPct">—</b><em data-el="rTxt">—</em></div><div class="lv-c"><small>زمان ساخت</small><b data-el="etaS">—</b><em>تا آماده شدن</em></div></div>
       </div>
-      <div class="pnl" data-grp="time">
-        <div class="dh"><h2>زمان</h2><small data-el="info"></small></div>
-        <div class="lbl">بازه</div>
-        <div class="two"><button class="pill" data-act="setA"><span data-ic="start"></span>شروع از اینجا</button><button class="pill" data-act="setB"><span data-ic="end"></span>پایان اینجا</button></div>
-        <button class="link" data-act="resetTrim">کل ویدیو</button>
-        <div class="lbl">سرعت</div>
-        <div class="grid4"><button class="chip" data-speed="0.5">۰٫۵×</button><button class="chip sel" data-speed="1">۱×</button><button class="chip" data-speed="1.5">۱٫۵×</button><button class="chip" data-speed="2">۲×</button></div>
-        <p class="note end"><span class="dot"></span>با تغییر سرعت، بی‌صدا</p>
+      <div class="pnl" data-grp="edit">
+        <div class="sh"><b><span data-ic="crop"></span>کادر</b><button class="link" data-act="resetCrop">بازنشانی</button></div>
+        <div class="g4"><button class="chip sel" data-aspect="free">آزاد</button><button class="chip" data-aspect="orig">اصلی</button><button class="chip" data-aspect="1:1">۱:۱</button><button class="chip" data-aspect="4:5">۴:۵</button><button class="chip" data-aspect="4:3">۴:۳</button><button class="chip" data-aspect="3:2">۳:۲</button><button class="chip" data-aspect="16:9">۱۶:۹</button><button class="chip" data-aspect="9:16">۹:۱۶</button></div>
+        <div class="sh"><b><span data-ic="speed"></span>سرعت پخش</b><button class="link" data-act="resetTrim">کل ویدیو</button></div>
+        <div class="g4"><button class="chip" data-speed="0.5">۰٫۵×</button><button class="chip sel" data-speed="1">۱×</button><button class="chip" data-speed="1.5">۱٫۵×</button><button class="chip" data-speed="2">۲×</button></div>
+        <p class="note"><span class="dot"></span>با تغییر سرعت، ویدیو بی‌صدا می‌شود</p>
       </div>
-      <div class="pnl fxsec" data-grp="fx">
-        <div class="dh"><h2>افکت</h2><small data-el="fxName">بدون افکت</small></div>
+      <div class="pnl" data-grp="fx">
+        <div class="sh"><b><span data-ic="wand"></span>افکت</b><small data-el="fxName">بدون افکت</small></div>
         <div class="sl fx-k"><label>شدت</label><input type="range" min="0" max="100" value="50" data-k="fxk"><output data-v="fxk">۵۰</output></div>
-        <div class="fxstrip" data-el="fxstrip"></div>
+        <div class="fxgrid" data-el="fxstrip"></div>
       </div>
       <div class="pnl" data-grp="out">
-        <div class="dh"><h2>خروجی</h2><span class="legend"><span data-ic="globe"></span>مناسب سایت</span></div>
-        <div class="fmts c4">
-          <button class="fmt sel" data-fmt="mp4"><span class="site" data-ic="globe"></span><b>MP4</b><small class="rec">★ پیشنهاد</small></button>
-          <button class="fmt" data-fmt="webm"><span class="site" data-ic="globe"></span><b>WebM</b><small>سبک‌تر</small></button>
-          <button class="fmt" data-fmt="webp"><span class="site" data-ic="globe"></span><b>WebP</b><small>متحرک</small></button>
-          <button class="fmt" data-fmt="gif"><b>GIF</b><small>پیام‌رسان</small></button>
-        </div>
-        <div class="two"><button class="chip sel" data-act="sound" aria-pressed="true"><span data-ic="sound"></span>با صدا</button><button class="chip sel" data-act="loop" aria-pressed="true"><span data-ic="loop"></span>تکرار</button></div>
-        <p class="hint warn" data-el="fmtNote" hidden></p>
+        <div class="sh"><b><span data-ic="out"></span>خروجی</b><span class="legend"><span data-ic="globe"></span>مناسب سایت</span></div>
+        <div class="fmts c4"><button class="fmt sel" data-fmt="mp4"><span class="site" data-ic="globe"></span><b>MP4</b><small class="rec">★ پیشنهاد</small></button><button class="fmt" data-fmt="webm"><span class="site" data-ic="globe"></span><b>WebM</b><small>سبک‌تر</small></button><button class="fmt" data-fmt="webp"><span class="site" data-ic="globe"></span><b>WebP</b><small>متحرک</small></button><button class="fmt" data-fmt="gif"><b>GIF</b><small>پیام‌رسان</small></button></div>
+        <div class="g2"><button class="chip sel" data-act="sound" aria-pressed="true"><span data-ic="sound"></span>با صدا</button><button class="chip sel" data-act="loop" aria-pressed="true"><span data-ic="loop"></span>تکرار</button></div>
+        <p class="note warn" data-el="fmtNote" hidden></p>
         <div class="lbl">وضوح</div>
-        <div class="grid5"><button class="chip" data-res="360">360p</button><button class="chip sel" data-res="480">480p</button><button class="chip" data-res="720">720p</button><button class="chip" data-res="1080">1080p</button><button class="chip" data-res="0">اصلی</button></div>
+        <div class="g5"><button class="chip" data-res="360">360p</button><button class="chip sel" data-res="480">480p</button><button class="chip" data-res="720">720p</button><button class="chip" data-res="1080">1080p</button><button class="chip" data-res="0">اصلی</button></div>
         <div class="lbl">فریم در ثانیه</div>
-        <div class="grid4" data-el="fpsBox"></div>
+        <div class="g4" data-el="fpsBox"></div>
         <div class="lbl">کیفیت و حجم</div>
         <div class="segc"><button class="chip" data-gq="best">عالی</button><button class="chip sel" data-gq="balanced">متعادل</button><button class="chip" data-gq="small">کم‌حجم</button></div>
-        <div class="io">
-          <div class="io-c"><small>ورودی</small><b data-el="inDims">—</b><span data-el="inSize">—</span></div>
-          <span class="io-arrow" data-ic="prev"></span>
-          <div class="io-c out"><small>خروجی</small><b data-el="outDims">—</b><span class="goldv" data-el="outSize">—</span></div>
-        </div>
-        <div class="io-tags"><span class="tag" data-el="dSize">—</span><span class="tag" data-el="frames">—</span></div>
       </div>
     </aside>
-    <nav class="dock glass"><button class="tool sel" data-seg="crop"><span data-ic="crop"></span><em>کادر</em></button><button class="tool" data-seg="time"><span data-ic="clock"></span><em>زمان</em></button><button class="tool" data-seg="fx"><span data-ic="wand"></span><em>افکت</em></button><button class="tool" data-seg="out"><span data-ic="out"></span><em>خروجی</em></button><i class="dsep"></i><button class="go btn-gold" data-act="export"><span data-ic="spark"></span><span class="go-t"><b data-el="expLbl">ساخت MP4</b><small><span data-el="outSize">—</span> | <span class="tm" data-el="eta"><i>—</i></span></small></span></button></nav>
+    <nav class="dock glass"><button class="tool sel" data-seg="edit"><span data-ic="edit"></span><em>ویرایش</em></button><button class="tool" data-seg="fx"><span data-ic="wand"></span><em>افکت</em></button><button class="tool" data-seg="out"><span data-ic="out"></span><em>خروجی</em></button><i class="dsep"></i><button class="go" data-act="export"><span data-ic="spark"></span><span class="go-t"><b data-el="expLbl">ساخت MP4</b><small><span data-el="outSize">—</span> | <span data-el="eta"><i>—</i></span></small></span></button></nav>
   </section>
   <p class="foot">کیفیت می‌ماند، حجم می‌رود | نسخهٔ <span id="ver"></span></p>
 </main>
 
 <div class="resv" id="res" hidden>
   <div class="amb"></div>
-  <div class="res-card">
-    <div class="res-prev stage" id="resPrev"><img id="resImg" alt=""><video id="resVid" controls playsinline hidden></video><div class="cmpv" id="cmpv" hidden></div></div>
-    <div class="res-head glass"><b class="ttl" id="resTitle">نتیجه</b><i class="sepv"></i><span class="status ok" id="resStat">ساخته شد</span></div>
-    <div class="res-info glass" id="resInfoBox" hidden><div class="ri-h"><b>جزئیات فایل</b><button class="ibtn rb x" id="resInfoX" data-ic="close" aria-label="بستن"></button></div><div class="cmpt" id="resTable"></div></div>
-    <div class="res-acts dock glass dbar"><button class="tool" id="resBack"><span data-ic="back"></span><em>بازگشت</em></button><button class="tool" id="resInfo"><span data-ic="info"></span><em>جزئیات</em></button><button class="tool" id="resReveal" hidden><span data-ic="folder"></span><em>نمایش در پوشه</em></button><button class="tool gold" id="resSave"><span data-ic="save"></span><em>ذخیره</em></button></div>
-  </div>
+  <div class="res-prev" id="resPrev"><img id="resImg" alt=""><video id="resVid" controls playsinline hidden></video><div class="cmpv" id="cmpv" hidden></div></div>
+  <div class="res-head glass"><b class="ttl" id="resTitle">نتیجه</b><i class="sepv"></i><span class="status ok" id="resStat">ساخته شد</span></div>
+  <div class="res-info glass" id="resInfoBox" hidden><div class="ri-h"><b>جزئیات فایل</b><button class="ibtn x" id="resInfoX" data-ic="close" aria-label="بستن"></button></div><div class="cmpt" id="resTable"></div></div>
+  <div class="dock glass dbar"><button class="tool" id="resBack"><span data-ic="back"></span><em>بازگشت</em></button><button class="tool" id="resInfo"><span data-ic="info"></span><em>جزئیات</em></button><button class="tool" id="resReveal" hidden><span data-ic="folder"></span><em>نمایش در پوشه</em></button><button class="tool gold" id="resSave"><span data-ic="save"></span><em>ذخیره</em></button></div>
 </div>
 
 <div class="busy kb" id="busy"><div class="amb"></div><div class="kb-in glass"><div class="kb-t"><span id="busyT">لطفاً صبر کنید</span><small id="busyM" hidden></small></div><svg viewBox="0 0 220 150" aria-hidden="true">

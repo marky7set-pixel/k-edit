@@ -1,12 +1,18 @@
 /* shared busy / toast / result helpers */
 (function () {
   'use strict';
-  var busyOn = false, cancelFn = null, tt, tick = null, own = false, manual = false, t0 = 0, eta = 0;
+  var busyOn = false, cancelFn = null, tt, tick = null, own = false, manual = false, t0 = 0, eta = 0, nTitle = '', nLast = -9, nT = 0, nOn = false;
+  function native(on, p) { // Android: keep working with the screen off, progress in a notification
+    var N = window.KEditNative; if (!N || !N.busy || (on && !nOn)) return;
+    var v = p == null || p < 0 ? -1 : Math.round(p * 100), now = Date.now();
+    if (on && v === nLast) return; if (on && v >= 0 && Math.abs(v - nLast) < 2 && now - nT < 1500) return;
+    nLast = v; nT = now; try { N.busy(!!on, v, nTitle); } catch (e) {}
+  }
   var UI = KE.UI = {
     isBusy: function () { return busyOn; },
     busy: function (label, p, onCancel, opt) {
       opt = opt || {}; busyOn = true; cancelFn = onCancel || null;
-      document.getElementById('busyT').textContent = label;
+      document.getElementById('busyT').textContent = label; nTitle = label; nLast = -9; nOn = /پخت|ارتقا|ساخت/.test(label);
       var m = document.getElementById('busyM'); m.textContent = opt.meta || ''; m.hidden = !opt.meta;
       document.getElementById('busyX').hidden = !onCancel;
       own = false; manual = p != null && p >= 0 && !opt.eta; t0 = performance.now(); eta = opt.eta || 0;
@@ -16,25 +22,25 @@
         if (!manual) UI.progress(Math.min(0.95, el / Math.max(1, eta)), true);
         if (!own) UI.sub(rem < 400 ? 'آخرین مرحله…' : KE.etaText(rem) + ' مانده', true);
       }, 250);
-      document.getElementById('busy').classList.add('on');
+      document.getElementById('busy').classList.add('on'); native(true, p);
     },
     progress: function (p, auto) {
       var r = document.getElementById('ring'), t = document.getElementById('ringP');
       if (!auto && p != null && p >= 0) manual = true;
       if (p == null || p < 0) { r.classList.add('spin'); t.classList.add('spin'); return; }
       r.classList.remove('spin'); t.classList.remove('spin'); var v = Math.round(p * 100);
-      r.firstElementChild.style.width = v + '%'; t.textContent = KE.fa(v) + '٪';
+      r.firstElementChild.style.width = v + '%'; t.textContent = KE.fa(v) + '٪'; if (busyOn) native(true, p);
     },
-    idle: function () { busyOn = false; cancelFn = null; clearInterval(tick); document.getElementById('busy').classList.remove('on'); UI.sub('', true); },
+    idle: function () { if (busyOn && nOn) native(false); nOn = false; busyOn = false; cancelFn = null; clearInterval(tick); document.getElementById('busy').classList.remove('on'); UI.sub('', true); },
     sub: function (t, auto) { if (!auto && t) own = true; var e = document.getElementById('busyS'); if (e) { document.getElementById('busySt').textContent = t || ''; e.hidden = !t; } },
-    label: function (t) { document.getElementById('busyT').textContent = t; },
+    label: function (t) { document.getElementById('busyT').textContent = t; nTitle = t; nLast = -9; if (busyOn) native(true, -1); },
     toast: function (msg, kind) {
       var t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast on ' + (kind || ''); clearTimeout(tt);
       tt = setTimeout(function () { t.className = 'toast ' + (kind || ''); }, 3200);
     },
     // input → output panel: dimensions, size, and how much both change
     showEst: function (root, e) {
-      var set = function (k, html, cls) { KE.$$(root, '[data-el=' + k + ']').forEach(function (x) { x.innerHTML = html; if (cls !== undefined) x.className = x.className.replace(/ ?(up|down|wait)/g, '') + (cls ? ' ' + cls : ''); }); };
+      var set = function (k, html, cls) { KE.$$(root, '[data-el=' + k + ']').forEach(function (x) { x.innerHTML = html; if (cls !== undefined) x.className = x.className.replace(/ ?\b(up|down|wait|gd)\b/g, '') + (cls ? ' ' + cls : ''); }); };
       set('inDims', KE.dims(e.inW, e.inH)); set('inSize', e.inSize ? KE.size(e.inSize) : '—');
       set('outDims', KE.dims(e.outW, e.outH)); set('est', KE.dims(e.outW, e.outH));
       if (e.outSize == null) { set('outSize', 'در حال محاسبه', 'wait'); set('dSize', 'حجم: محاسبه…', 'wait'); set('dPct', '…', 'wait'); }
@@ -43,7 +49,11 @@
         if (e.inSize) { var d = Math.round((e.outSize / e.inSize - 1) * 100); set('dSize', d <= 0 ? 'حجم ' + KE.fa(-d) + '٪ کمتر' : 'حجم ' + KE.fa(d) + '٪ بیشتر', d <= 0 ? 'down' : 'up'); set('dPct', d <= 0 ? '٪' + KE.fa(-d) + ' کمتر' : '٪' + KE.fa(d) + ' بیشتر', d <= 0 ? 'down' : 'up'); }
         else { set('dSize', '', ''); set('dPct', '', ''); }
       }
-      var r = Math.round(((e.outW * e.outH) / (e.inW * e.inH) - 1) * 100);
+      var sh = function (b) { return KE.size(b).replace('مگابایت', 'مگ').replace('کیلوبایت', 'ک').replace('بایت', 'ب'); };
+      set('szPair', e.inSize ? sh(e.inSize) + ' ← ' + (e.outSize == null ? '…' : sh(e.outSize)) : '—');
+      var r = Math.round(((e.outW * e.outH) / (e.inW * e.inH) - 1) * 100), kx = e.outW / e.inW;
+      set('rPct', Math.abs(r) < 1 ? '۰٪' : (r > 0 ? '٪' + KE.fa(r) + ' بیشتر' : '٪' + KE.fa(-r) + ' کمتر'), r > 0 ? 'gd' : '');
+      set('rTxt', Math.abs(r) < 1 ? 'بدون تغییر' : (kx > 1.9 && Math.abs(kx - Math.round(kx)) < 0.05 ? KE.fa(Math.round(kx)) + ' برابر' : KE.fa(Math.min(e.outW, e.outH)) + 'p'));
       set('dRes', Math.abs(r) < 1 ? 'وضوح بدون تغییر' : (r > 0 ? 'وضوح ' + KE.fa(r) + '٪ بیشتر' : 'وضوح ' + KE.fa(-r) + '٪ کمتر'), r > 0 ? 'down' : '');
     },
     fillResult: function (r) {
